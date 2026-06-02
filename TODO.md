@@ -1,0 +1,779 @@
+# OrbitSim - Development Roadmap
+
+**Architecture:** Deterministic fixed-timestep physics core · Hybrid gravity (n-body vessel + bodies on rails) · Double precision (float64) · SI units
+**Current Version:** 0.1.0-alpha
+**Last Updated:** 2026-06-02
+
+> Sim aérospatiale de type Kerbal : système solaire avec gravité réelle, où les orbites *émergent* de l'intégration des forces, plus descente/atterrissage propulsé. Conçue comme deuxième projet alternant avec le game engine — réutilise volontairement les mêmes patterns (ServiceLocator, fixed timestep, manager lifecycle) pour que passer d'un projet à l'autre soit naturel.
+
+---
+
+## Table of Contents
+1. [Architecture Overview](#architecture-overview)
+2. [Phase 0: Core Simulation Architecture](#phase-0-core-simulation-architecture)
+3. [Phase 1: First Orbit Milestone (2D)](#phase-1-first-orbit-milestone-2d)
+4. [Phase 2: N-body Gravity & Multi-body](#phase-2-n-body-gravity--multi-body)
+5. [Phase 3: Celestial Bodies & Solar System](#phase-3-celestial-bodies--solar-system)
+6. [Phase 4: Coordinate Frames & Precision](#phase-4-coordinate-frames--precision)
+7. [Phase 5: The Vessel (6DOF Rigid Body)](#phase-5-the-vessel-6dof-rigid-body)
+8. [Phase 6: Atmospheres (Multi-layer)](#phase-6-atmospheres-multi-layer)
+9. [Phase 7: Aerodynamics](#phase-7-aerodynamics)
+10. [Phase 8: Guidance, Navigation & Control](#phase-8-guidance-navigation--control)
+11. [Phase 9: Orbital Mechanics & Trajectory Prediction](#phase-9-orbital-mechanics--trajectory-prediction)
+12. [Phase 10: Time Warp](#phase-10-time-warp)
+13. [Phase 11: Rendering & Visualization](#phase-11-rendering--visualization)
+14. [Phase 12: Sandbox & Editor Tools](#phase-12-sandbox--editor-tools)
+15. [Validation & Testing Strategy](#validation--testing-strategy)
+16. [Technical Decisions](#technical-decisions)
+17. [Priority Order (Next Steps)](#priority-order-next-steps)
+18. [Build System](#build-system)
+19. [Notes & Best Practices](#notes--best-practices)
+
+---
+
+## Architecture Overview
+
+### Design Principles
+- **Deterministic fixed-timestep core** - La physique avance par pas fixes, totalement découplée du framerate de rendu. Mêmes entrées → mêmes sorties, toujours.
+- **Double precision everywhere** - Tout l'état physique en `float64`. Les distances du système solaire (~10¹¹ m) tuent la `float32`.
+- **Symplectic integration** - Conservation de l'énergie sur le long terme : les orbites restent fermées au lieu de spiraler.
+- **Hybrid gravity model** - Les corps célestes suivent des orbites képlériennes analytiques (sur rails), le vaisseau ressent la somme des gravités de tous les corps. On obtient les orbites émergentes + les points de Lagrange tout en gardant un système solaire stable.
+- **Data-driven bodies** - Masses, rayons, éléments orbitaux et compositions atmosphériques chargés depuis des fichiers, pas codés en dur.
+- **Sim core ≠ rendering** - Le moteur physique ne connaît rien du rendu. On peut le tester sans fenêtre.
+
+### Target Feature Set
+- Système solaire complet basé sur des paramètres réels (masses, μ, éléments orbitaux)
+- Gravité qui s'applique en continu : le vaisseau tombe toujours, sauf si la vitesse latérale crée une orbite
+- Atmosphères multi-couches dépendant de la composition de chaque corps
+- Vaisseau 6DOF avec masse variable, étages, poussée orientable
+- Pilote automatique : maintien d'attitude, descente propulsée, atterrissage en douceur
+- Vue carte avec prédiction de trajectoire (coniques raccordées) et nœuds de manœuvre
+- Time warp via propagation analytique
+
+### Simulation Step Order (Critical!)
+**Chaque pas de temps fixe `dt` exécute exactement cette séquence :**
+
+1. **Bodies layer** - Avancer les corps célestes sur leurs rails (positions analytiques à `t`)
+2. **Force layer** (sur le vaisseau)
+   - Gravité : somme de `−μᵢ · r̂ / rᵢ²` sur tous les corps
+   - Aéro : traînée/portance depuis l'atmosphère du corps dominant
+   - Poussée : depuis les moteurs actifs + commandes du contrôleur
+3. **Integration layer** - Intégrer position/vitesse (translation) et quaternion/ω (rotation) via intégrateur symplectique
+4. **Mass layer** - Décrémenter la masse de carburant selon le débit massique
+5. **Events layer** - Transitions de sphère d'influence (SOI), collisions sol, séparation d'étages
+6. **Interpolation** - Interpoler l'état pour le rendu (découplé)
+
+---
+
+## Phase 0: Core Simulation Architecture
+
+**Goal:** Poser le squelette de simulation dont tout le reste dépend — boucle, temps, état, intégrateur
+
+### 0.1 State Representation
+**Purpose:** Définir ce qui décrit complètement le système à l'instant `t`
+
+- [ ] Créer `src/Core/State.hpp`
+- [ ] Translation state : `dvec3 position`, `dvec3 velocity` (double précision)
+- [ ] Rotation state (ajouté en Phase 5) : `dquat orientation`, `dvec3 angularVelocity`
+- [ ] `double mass` (variable — diminue quand le carburant brûle)
+- [ ] Séparer clairement l'état (intégré) des dérivées (forces/couples calculés chaque pas)
+- [ ] Structure `Derivative { dvec3 dPosition; dvec3 dVelocity; }` pour les intégrateurs multi-étapes
+
+**Why this matters:** L'intégrateur ne fait qu'avancer ce vecteur d'état dans le temps. Tout ce qui n'est pas dedans n'existe pas pour la physique.
+
+### 0.2 Fixed Timestep Loop
+**Purpose:** Faire tourner la physique à pas constant, indépendamment du framerate
+
+- [ ] Créer `src/Core/SimulationLoop.hpp` et `.cpp`
+- [ ] Pattern accumulateur : accumuler le temps réel, avancer la physique par chunks de `dt` fixe
+- [ ] `dt` physique fixe configurable (défaut 1/60 s, plus petit près des corps)
+- [ ] Cap du nombre de sous-pas par frame (éviter la spirale de la mort si le rendu lag)
+- [ ] Calculer un facteur d'interpolation `alpha` pour le rendu entre deux états physiques
+- [ ] Stocker l'état précédent + courant pour l'interpolation
+
+> **Note technique :** Le `dt` fixe est non négociable pour le déterminisme. Un `dt` variable rend la simulation non reproductible et fait dériver les orbites différemment selon le framerate.
+
+**Why this matters:** C'est le cœur de toute sim. Découpler physique et rendu donne déterminisme + stabilité.
+
+### 0.3 TimeManager
+**Purpose:** Source de temps unifiée, avec support du time warp
+
+- [ ] Créer `src/Core/TimeManager.hpp` et `.cpp`
+- [ ] Temps de simulation cumulé (secondes depuis t0)
+- [ ] `fixedDeltaTime` : pas physique constant
+- [ ] `timeScale` / niveau de warp : 1×, 10×, 100×, 1000×, ...
+- [ ] Temps réel (mur) vs temps simulé
+- [ ] Calendrier optionnel : convertir secondes ↔ date (jours/années) pour l'affichage
+- [ ] Exposer `getSimTime()`, `getFixedDt()`, `getWarpLevel()`
+
+**Why this matters:** Observer une orbite demande d'accélérer le temps. Le warp interagit avec l'intégration (voir Phase 10).
+
+### 0.4 Numerical Integrators
+**Purpose:** Avancer l'état d'un pas — le choix décide de la stabilité des orbites
+
+- [ ] Créer `src/Core/Integrator.hpp` (interface)
+- [ ] Implémenter **Semi-implicit Euler** (référence pédagogique — montre la dérive)
+- [ ] Implémenter **Velocity Verlet** (symplectique — workhorse pour les orbites)
+- [ ] Implémenter **Leapfrog** (symplectique, équivalent, parfois plus pratique)
+- [ ] Implémenter **RK4** (non symplectique — utile pour comparer, NE PAS utiliser pour orbites longues)
+- [ ] Interface commune : `step(State&, forceFunc, dt)`
+- [ ] Permettre de switcher d'intégrateur via config (pour comparer la dérive)
+
+> **Note technique :** RK4 ne conserve PAS l'énergie : une orbite censée être stable spirale lentement. Velocity Verlet / leapfrog sont symplectiques → l'énergie oscille autour d'une valeur fixe sans dériver. C'est *la* clé d'orbites fermées indéfiniment.
+
+**Why this matters:** Mauvais intégrateur = orbites qui s'écrasent ou s'échappent toutes seules après quelques tours. Tout repose là-dessus.
+
+### 0.5 Constants, Units & Logger
+**Purpose:** Conventions cohérentes et outils de debug dès le départ
+
+- [ ] Créer `src/Core/Constants.hpp` : `G`, `g0 = 9.80665`, conversions
+- [ ] **SI partout** : mètres, kilogrammes, secondes, radians
+- [ ] Utiliser `μ = GM` (paramètre gravitationnel standard) plutôt que `G·M` séparément
+- [ ] Logger avec niveaux (Info/Warning/Error)
+- [ ] Macro d'assertion `SIM_ASSERT`
+- [ ] Documenter les conventions de repère (axe « haut », sens de rotation positif)
+
+> **Note technique :** Pour les vrais corps, `μ` est connu bien plus précisément que `G` ou `M` séparément. Charger `μ` directement évite d'accumuler l'imprécision de `G`.
+
+**Why this matters:** Les bugs d'unités et de repère sont les plus pénibles. Les fixer comme conventions évite des heures de debug.
+
+---
+
+## Phase 1: First Orbit Milestone (2D)
+
+**Goal:** Obtenir une orbite stable qui émerge de la gravité — le plus vite possible, en 2D, pour valider le cœur
+
+### 1.1 Single Body + Test Particle
+**Purpose:** Le cas le plus simple : un corps massif fixe, une particule sans masse
+
+- [ ] Corps massif fixe à l'origine avec `μ`
+- [ ] Particule ponctuelle avec `position` + `velocity`
+- [ ] Force gravitationnelle : `a = −μ · r̂ / r²` (accélération, indépendante de la masse de la particule)
+- [ ] Boucle de simulation appliquant la gravité chaque pas
+
+### 1.2 Integrator Comparison
+**Purpose:** Voir de ses yeux pourquoi l'intégrateur compte
+
+- [ ] Lancer la particule avec une vitesse latérale donnant une orbite circulaire (`v = √(μ/r)`)
+- [ ] Avec **Euler semi-implicite** : observer la dérive (l'orbite change de forme)
+- [ ] Avec **Velocity Verlet** : observer une orbite stable et fermée sur des centaines de tours
+- [ ] **Success criteria :** L'orbite reste fermée et l'énergie spécifique `ε = v²/2 − μ/r` reste constante (à la tolérance numérique près)
+
+### 1.3 Conservation Checks
+**Purpose:** Vérifier que la physique est juste, pas juste « jolie »
+
+- [ ] Logger l'énergie spécifique orbitale à chaque tour
+- [ ] Logger le moment cinétique spécifique `h = r × v`
+- [ ] Vérifier la période contre `T = 2π√(a³/μ)`
+- [ ] Tracer la dérive d'énergie en fonction du temps pour chaque intégrateur
+
+### 1.4 Minimal 2D Rendering
+**Purpose:** Voir l'orbite
+
+- [ ] Rendu 2D basique (le corps, la particule, une traînée des N dernières positions)
+- [ ] Mapping monde → écran avec zoom/pan
+- [ ] **Success criteria :** Lâcher la particule à la bonne vitesse et la voir boucler une orbite fermée stable sans rien scripter
+
+> **Note technique :** À ce stade, ne rends pas en `float64` directement — convertis l'état physique double précision en coordonnées écran. Le rendu lui-même peut rester simple.
+
+**Why this matters:** Si ça marche, le cœur du moteur est validé. Tout le reste n'ajoute que des termes au modèle de forces.
+
+---
+
+## Phase 2: N-body Gravity & Multi-body
+
+**Goal:** Généraliser à plusieurs corps qui s'attirent, avec le modèle de gravité hybride
+
+### 2.1 Gravity Accumulation
+**Purpose:** Sommer les contributions de tous les corps sur le vaisseau
+
+- [ ] Créer `src/Physics/GravitySystem.hpp` et `.cpp`
+- [ ] Pour le vaisseau : sommer `aᵢ = −μᵢ · (r − rᵢ).normalized() / |r − rᵢ|²` sur tous les corps
+- [ ] Paramètre de softening optionnel pour éviter la singularité quand `r → 0`
+- [ ] Direct summation (O(n²)) : suffisant pour < ~100 corps (un système solaire)
+- [ ] *(Optionnel, plus tard)* Barnes-Hut O(n log n) si milliers de corps (probablement inutile ici)
+
+### 2.2 Hybrid Model Decision
+**Purpose:** Décider qui attire qui
+
+- [ ] **Corps célestes** : sur rails képlériens analytiques (Phase 3), PAS de gravité mutuelle simulée
+- [ ] **Vaisseau** : ressent la somme des gravités de tous les corps (vrai n-corps pour lui seul)
+- [ ] Permet les points de Lagrange et les perturbations réelles côté vaisseau
+- [ ] Garde le système solaire parfaitement stable côté corps
+
+> **Note technique :** Simuler les planètes elles-mêmes en n-corps complet les fait dériver sur le long terme et déstabilise le système. Les rails analytiques garantissent un système solaire fidèle et reproductible. C'est le compromis que font Orbiter et (en gros) KSP.
+
+### 2.3 Collision Detection
+**Purpose:** Détecter l'impact sur la surface d'un corps
+
+- [ ] Distance vaisseau ↔ centre du corps < rayon → collision/atterrissage
+- [ ] Émettre un événement de collision (vitesse d'impact, corps touché)
+- [ ] Distinguer atterrissage doux (Phase 8) vs crash (vitesse trop élevée)
+
+**Why this matters:** Sans collision, le vaisseau traverse les planètes. C'est aussi la base de l'atterrissage.
+
+---
+
+## Phase 3: Celestial Bodies & Solar System
+
+**Goal:** Construire un système solaire à partir de vrais paramètres, avec corps sur rails
+
+### 3.1 CelestialBody Data
+**Purpose:** Décrire un corps avec des paramètres physiques réels
+
+- [ ] Créer `src/Bodies/CelestialBody.hpp`
+- [ ] `μ` (paramètre gravitationnel standard), `radius`, `mass`
+- [ ] Période de rotation sidérale + inclinaison de l'axe (obliquité)
+- [ ] Corps parent (hiérarchie : Soleil → planètes → lunes)
+- [ ] Référence vers le modèle d'atmosphère (Phase 6), nullable
+- [ ] Rayon de sphère d'influence (calculé, voir 3.3)
+
+### 3.2 Keplerian Propagation (On Rails)
+**Purpose:** Calculer la position d'un corps à n'importe quel instant, analytiquement
+
+- [ ] Stocker les éléments orbitaux : demi-grand axe `a`, excentricité `e`, inclinaison `i`, longitude du nœud ascendant `Ω`, argument du périapse `ω`, anomalie moyenne à l'époque `M₀`
+- [ ] Anomalie moyenne à `t` : `M = M₀ + n·(t − t₀)`, avec `n = √(μ/a³)`
+- [ ] Résoudre l'équation de Kepler `M = E − e·sin(E)` pour l'anomalie excentrique `E` (Newton-Raphson)
+- [ ] Anomalie vraie `ν` depuis `E`
+- [ ] Convertir `(a, e, ν, i, Ω, ω)` → position + vitesse dans le repère parent
+- [ ] Cache de la position par frame (recalcul seulement si le temps change)
+
+> **Note technique :** L'itération de Newton sur l'équation de Kepler converge en ~3-5 itérations pour `e < 0.9`. Démarrer avec `E₀ = M` (ou `E₀ = π` pour les fortes excentricités).
+
+### 3.3 Sphere of Influence (SOI)
+**Purpose:** Déterminer quel corps domine à une position donnée
+
+- [ ] Rayon de SOI (Laplace) : `r_SOI ≈ a · (m_corps / m_parent)^(2/5)`
+- [ ] Fonction « quel corps domine cette position ? » (parcours de la hiérarchie)
+- [ ] Détecter les transitions de SOI pour le vaisseau (événement)
+
+> **Note technique :** La SOI sert surtout à la prédiction de trajectoire (coniques raccordées, Phase 9) et au time warp (Phase 10). En vol normal n-corps, le vaisseau ressent tout le monde de toute façon.
+
+### 3.4 Data-driven Loading
+**Purpose:** Charger le système solaire depuis un fichier
+
+- [ ] Format JSON : un fichier décrivant tous les corps et leur hiérarchie
+- [ ] Charger les vrais paramètres (Soleil, planètes, lunes) — masses, rayons, μ, éléments orbitaux
+- [ ] Validation : hiérarchie cohérente, pas de référence parent manquante
+- [ ] Permettre des systèmes fictifs (style Kerbol) en changeant juste le fichier
+
+### 3.5 Body Rotation
+**Purpose:** Faire tourner les corps sur eux-mêmes
+
+- [ ] Angle de rotation à `t` depuis la période sidérale
+- [ ] Repère tournant lié au corps (pour la position au sol, l'atmosphère qui tourne avec)
+
+**Why this matters:** La rotation du corps crée le « vent » atmosphérique (Phase 7) et détermine les positions au sol pour l'atterrissage.
+
+---
+
+## Phase 4: Coordinate Frames & Precision
+
+**Goal:** Gérer les repères et la précision flottante — le piège silencieux des sims spatiales
+
+### 4.1 Reference Frames
+**Purpose:** Transformer proprement entre les différents repères
+
+- [ ] Créer `src/Frames/FrameManager.hpp`
+- [ ] Repère inertiel héliocentrique (référence principale)
+- [ ] Repère lié à un corps (centré sur la planète, non tournant)
+- [ ] Repère tournant lié au corps (tourne avec la planète)
+- [ ] Repère local du vaisseau (body frame)
+- [ ] Transformations position + vitesse entre repères (attention aux termes de Coriolis/centrifuge dans les repères tournants)
+
+### 4.2 Floating Origin / Origin Rebasing
+**Purpose:** Garder la précision de rendu malgré les distances énormes
+
+- [ ] Recentrer le repère de rendu sur le vaisseau actif (ou le corps dominant)
+- [ ] Physique en `float64` absolu, rendu en `float32` relatif à l'origine flottante
+- [ ] Rebaser quand le vaisseau s'éloigne trop de l'origine courante
+
+> **Note technique :** 1 UA ≈ 1,5×10¹¹ m. En `float32`, la résolution à cette distance dépasse le kilomètre → ton vaisseau tremble et se téléporte. La physique reste en double, et on ne convertit en simple qu'après avoir soustrait l'origine flottante.
+
+### 4.3 Scaled Space (Distant Bodies)
+**Purpose:** Afficher les corps lointains sans casser la précision
+
+- [ ] Rendre les corps très éloignés à une échelle réduite dans un « espace mis à l'échelle »
+- [ ] Basculer entre espace local (proche) et espace mis à l'échelle (lointain)
+
+**Why this matters:** C'est exactement là que KSP s'est cassé les dents. Régler ça tôt évite une réécriture douloureuse plus tard.
+
+---
+
+## Phase 5: The Vessel (6DOF Rigid Body)
+
+**Goal:** Passer du point matériel à un vrai corps rigide avec orientation, masse variable et poussée
+
+### 5.1 Rigid Body State
+**Purpose:** Ajouter la rotation à l'état
+
+- [ ] Étendre `State` : `dquat orientation`, `dvec3 angularVelocity`
+- [ ] Tenseur d'inertie + centre de masse
+- [ ] Intégration de l'orientation : `q̇ = ½ · ω · q` (ω en quaternion pur), renormaliser `q` chaque pas
+- [ ] Accumulation des couples → `α = I⁻¹ · (τ − ω × (I·ω))`
+
+> **Note technique :** Renormalise le quaternion à chaque pas : l'intégration numérique le fait dériver de la norme unité, ce qui déforme les rotations.
+
+### 5.2 Mass Properties
+**Purpose:** Gérer une masse qui change quand le carburant brûle
+
+- [ ] Masse à sec, masse de carburant, masse totale
+- [ ] Recalculer le centre de masse et l'inertie quand le carburant diminue
+- [ ] Exposer la masse courante au système de gravité
+
+### 5.3 Propulsion
+**Purpose:** Modéliser les moteurs
+
+- [ ] Créer `src/Vessel/Engine.hpp`
+- [ ] Poussée (N), impulsion spécifique `Isp` (s)
+- [ ] Débit massique : `ṁ = F / (Isp · g0)`
+- [ ] Manette des gaz (throttle 0–1)
+- [ ] Poussée appliquée dans le body frame, transformée en repère monde avant intégration
+- [ ] Orientation de la poussée (gimbal) : vecteur de poussée orientable de quelques degrés
+
+### 5.4 Staging
+**Purpose:** Larguer les étages
+
+- [ ] Représenter le vaisseau comme une pile d'étages
+- [ ] Séparation : retirer un étage, recalculer masse/inertie/CoM
+- [ ] Événement de staging
+
+### 5.5 RCS / Attitude Thrusters
+**Purpose:** Contrôler l'orientation finement
+
+- [ ] Petits propulseurs produisant des couples
+- [ ] Consommation de carburant RCS séparée
+
+> **Note technique :** Vérifie ton modèle avec l'équation de Tsiolkovsky : `Δv = Isp·g0·ln(m₀/m₁)`. Le Δv obtenu en intégrant une poussée constante dans le vide doit matcher cette formule.
+
+**Why this matters:** C'est le passage du « caillou en orbite » à une vraie fusée pilotable.
+
+---
+
+## Phase 6: Atmospheres (Multi-layer)
+
+**Goal:** Modéliser des atmosphères dont le profil dépend de la composition
+
+### 6.1 Atmosphere Model
+**Purpose:** Donner densité, pression, température en fonction de l'altitude
+
+- [ ] Créer `src/Atmosphere/AtmosphereModel.hpp`
+- [ ] Densité via formule barométrique : `ρ(h) = ρ₀ · exp(−h / H)`
+- [ ] Hauteur d'échelle `H = R·T / (M·g)` (R = constante des gaz, M = masse molaire, T = température)
+- [ ] Vitesse du son `c = √(γ·R·T / M)` (pour le nombre de Mach)
+- [ ] Altitude de fin d'atmosphère (limite type Kármán)
+
+### 6.2 Multi-layer Profile
+**Purpose:** Couches successives avec propriétés distinctes
+
+- [ ] Définir des couches (troposphère, stratosphère, ...) avec gradient de température (lapse rate) propre
+- [ ] Continuité de pression aux frontières de couches
+- [ ] Composition → masse molaire moyenne → hauteur d'échelle de la couche
+
+> **Note technique :** La composition entre par la masse molaire `M` : elle change `H`, donc tout le profil de densité, donc tout le freinage et le profil de rentrée. Une atmosphère de CO₂ (Mars/Vénus) se comporte très différemment d'une d'azote.
+
+### 6.3 Data-driven Atmospheres
+**Purpose:** Configurer chaque corps depuis le fichier de données
+
+- [ ] Charger les couches + composition + température de surface depuis le JSON des corps
+- [ ] Corps sans atmosphère = modèle nul (densité 0 partout)
+
+**Why this matters:** L'atmosphère alimente toute l'aérodynamique. Multi-couches + composition = des planètes qui se « sentent » vraiment différentes.
+
+---
+
+## Phase 7: Aerodynamics
+
+**Goal:** Appliquer les forces aérodynamiques au vaisseau
+
+### 7.1 Drag
+**Purpose:** La force de traînée
+
+- [ ] Créer `src/Physics/AeroSystem.hpp`
+- [ ] Traînée : `F_d = ½ · ρ · v_rel² · C_d · A`, opposée à la vitesse relative
+- [ ] Densité `ρ` depuis l'atmosphère du corps dominant (Phase 6)
+- [ ] Vitesse *relative à l'atmosphère* : soustraire la vitesse de l'atmosphère qui tourne avec le corps
+- [ ] Coefficient `C_d` simple d'abord (sphère/cylindre), raffiner ensuite
+
+### 7.2 Dynamic Pressure & Limits
+**Purpose:** Suivre les contraintes physiques
+
+- [ ] Pression dynamique `Q = ½ · ρ · v_rel²`
+- [ ] Limite structurelle optionnelle (destruction si Q trop élevée — « max Q »)
+
+### 7.3 Lift (Optional)
+**Purpose:** Pour les corps portants / ailes
+
+- [ ] Portance perpendiculaire à la vitesse relative, dépend de l'angle d'attaque
+- [ ] Modèle simple coefficient `C_l(α)`
+
+### 7.4 Reentry Heating (Advanced, Optional)
+**Purpose:** Échauffement à la rentrée
+
+- [ ] Flux thermique approximatif `∝ ρ · v_rel³`
+- [ ] Accumulation de chaleur, seuil de destruction
+- [ ] Effets visuels (Phase 11)
+
+**Why this matters:** L'aéro transforme l'ascension et la rentrée en vrais défis. Le « max Q » et le freinage atmosphérique deviennent tangibles.
+
+---
+
+## Phase 8: Guidance, Navigation & Control
+
+**Goal:** Piloter automatiquement — culminant sur la descente/atterrissage propulsé
+
+### 8.1 Attitude Control (PID)
+**Purpose:** Pointer et maintenir le vaisseau dans une direction
+
+- [ ] Créer `src/Control/AttitudeController.hpp`
+- [ ] Contrôleur PID par axe pour annuler l'erreur d'orientation
+- [ ] Sortie → commandes de gimbal + RCS
+- [ ] Anti-emballement (integral windup clamp)
+
+### 8.2 Autopilot Modes
+**Purpose:** Modes de maintien d'attitude utiles
+
+- [ ] Hold prograde / retrograde (le long de la vitesse)
+- [ ] Hold radial in / out
+- [ ] Hold normal / anti-normal
+- [ ] Pointer vers une cible (autre vaisseau/corps)
+
+### 8.3 Powered Descent / Landing
+**Purpose:** Le problème Falcon 9 — poser le vaisseau en douceur
+
+- [ ] Orienter retrograde par rapport à la surface
+- [ ] Calculer l'altitude de début de combustion (suicide burn / hoverslam) à partir de vitesse, poussée dispo, gravité locale
+- [ ] Contrôle de la manette pour annuler la vitesse verticale ≈ au contact du sol
+- [ ] Annuler la vitesse horizontale (vitesse relative à la surface tournante)
+- [ ] **Success criteria :** Le vaisseau se pose tout seul à < ~2 m/s sans intervention
+
+> **Note technique :** Le « suicide burn » : combustion la plus tardive possible qui annule la vitesse pile au sol, pour minimiser le carburant. Calcule l'altitude de départ avec la décélération nette `(F/m − g)` et la vitesse courante. Garde une marge de sécurité au début.
+
+### 8.4 Ascent Guidance (Optional)
+**Purpose:** Monter en orbite automatiquement
+
+- [ ] Gravity turn : inclinaison progressive selon l'altitude/vitesse
+- [ ] Coupure moteur à l'apoapse cible, puis circularisation
+
+**Why this matters:** C'est le payoff de la fusée : décoller, se mettre en orbite, et se reposer — le tout en émergeant de la physique.
+
+---
+
+## Phase 9: Orbital Mechanics & Trajectory Prediction
+
+**Goal:** Calculer et afficher les orbites et trajectoires futures (la « vue carte »)
+
+### 9.1 State ↔ Orbital Elements
+**Purpose:** Convertir dans les deux sens
+
+- [ ] Depuis `(r, v, μ)` → éléments orbitaux (a, e, i, Ω, ω, ν)
+- [ ] Depuis éléments orbitaux → `(r, v)`
+- [ ] Calculer apoapse, périapse, période, énergie spécifique
+
+### 9.2 Trajectory Prediction
+**Purpose:** Prédire le futur sans simuler pas à pas
+
+- [ ] Propager la conique analytiquement pour tracer l'orbite future
+- [ ] Coniques raccordées : prédire à travers les transitions de SOI
+- [ ] Vérifier avec l'équation vis-viva : `v² = μ·(2/r − 1/a)`
+
+### 9.3 Maneuver Nodes
+**Purpose:** Planifier des manœuvres
+
+- [ ] Placer un nœud : Δv (prograde/normal/radial) à un instant donné
+- [ ] Prédire l'orbite résultante
+- [ ] Calcul d'approche la plus proche / interception avec une cible
+
+> **Note technique :** La prédiction utilise des coniques analytiques (rapide, déterministe), pendant que le vol réel utilise l'intégration n-corps. Léger écart attendu près des points de Lagrange — c'est normal et acceptable.
+
+**Why this matters:** Sans prédiction d'orbite, impossible de planifier des manœuvres. C'est ce qui rend une sim orbitale jouable.
+
+---
+
+## Phase 10: Time Warp
+
+**Goal:** Accélérer le temps sans casser l'intégration numérique
+
+### 10.1 The Problem
+- [ ] Documenter : un grand `dt` fait diverger l'intégration n-corps
+- [ ] Définir des niveaux de warp (1×, 10×, 100×, 1000×, 10000×, ...)
+
+### 10.2 On-Rails Propagation
+**Purpose:** Basculer le vaisseau en analytique pendant le warp
+
+- [ ] En warp élevé : convertir l'état du vaisseau en éléments orbitaux et le propager analytiquement (conique deux-corps autour du corps dominant)
+- [ ] Gérer les transitions de SOI pendant le warp (re-raccorder la conique)
+- [ ] Revenir en intégration n-corps dès que le joueur reprend la main (physics warp bas)
+
+### 10.3 Physics Warp (Low Levels)
+**Purpose:** Garder la physique active aux warps faibles
+
+- [ ] Aux warps faibles (≤ 4×), continuer l'intégration n-corps avec sous-pas
+- [ ] Interdire le warp élevé en atmosphère ou sous poussée
+
+> **Note technique :** C'est la deuxième raison du modèle hybride : la propagation analytique pendant le warp n'est possible que parce qu'on a déjà les éléments orbitaux et la structure deux-corps/SOI.
+
+**Why this matters:** Une orbite peut durer des heures voire des années. Sans warp, impossible d'observer le système.
+
+---
+
+## Phase 11: Rendering & Visualization
+
+**Goal:** Visualiser le système, les trajectoires et le vol
+
+### 11.1 Core Rendering
+**Purpose:** Afficher corps, vaisseau, traînées
+
+- [ ] 2D d'abord (validation), puis 3D
+- [ ] Rendu des corps (sphères texturées, à l'échelle ou en scaled space)
+- [ ] Rendu du vaisseau
+- [ ] Intégration de l'origine flottante (Phase 4)
+
+### 11.2 Orbit & Trajectory Lines
+**Purpose:** Tracer les orbites prédites
+
+- [ ] Lignes d'orbite depuis les éléments orbitaux (Phase 9)
+- [ ] Marqueurs apoapse/périapse, nœuds de manœuvre
+- [ ] Traînée historique du vaisseau
+
+### 11.3 Map View vs Flight View
+**Purpose:** Deux modes d'affichage
+
+- [ ] Vue carte : système entier, orbites, planification
+- [ ] Vue vol : proche du vaisseau, atmosphère, sol
+- [ ] Caméra orbitale autour du vaisseau / corps
+
+### 11.4 HUD
+**Purpose:** Télémétrie
+
+- [ ] Altitude, vitesse (surface + orbitale), apoapse/périapse, période
+- [ ] Carburant, Δv restant, manette des gaz
+- [ ] Pression dynamique Q, nombre de Mach
+
+### 11.5 Atmospheric & Reentry Effects (Optional)
+- [ ] Dégradé atmosphérique (ciel), effet de rentrée (plasma) lié au flux thermique
+
+> **Note technique :** À terme, le rendu pourrait s'appuyer sur VoxelEngine — mais ses besoins (double précision, origine flottante, échelles astronomiques) diffèrent d'un moteur de jeu classique. Recommandation : rendu standalone simple d'abord, intégration éventuelle plus tard.
+
+**Why this matters:** En tant que graphics programmer, c'est ton terrain — mais garde le rendu découplé de la physique.
+
+---
+
+## Phase 12: Sandbox & Editor Tools
+
+**Goal:** Outils pour expérimenter et déboguer
+
+### 12.1 Vessel Builder (Optional)
+- [ ] Assembler un vaisseau depuis des pièces (étages, moteurs, réservoirs)
+- [ ] Calcul automatique masse/Δv/TWR (rapport poussée/poids)
+
+### 12.2 Debug Visualization
+- [ ] Vecteurs de force (gravité, poussée, traînée) en temps réel
+- [ ] Affichage des sphères d'influence
+- [ ] Graphe de dérive d'énergie/moment cinétique
+- [ ] Inspecteur d'état (position, vitesse, éléments orbitaux live)
+
+### 12.3 Scenario System
+- [ ] Charger des scénarios (en orbite, sur la rampe, en approche d'atterrissage)
+- [ ] Sauvegarde/chargement de l'état complet (déterministe)
+
+**Why this matters:** Itérer vite sur les modes de vol sans tout relancer à zéro.
+
+---
+
+## Validation & Testing Strategy
+
+**Goal:** Garantir que la physique est correcte, pas juste plausible
+
+### Analytical Ground Truths
+**Purpose:** Comparer la sim à des solutions exactes connues
+
+- [ ] **Chute libre sans air** → parabole analytique exacte
+- [ ] **Orbite circulaire** → reste circulaire, rayon constant
+- [ ] **Période orbitale** → matche `T = 2π√(a³/μ)`
+- [ ] **Énergie spécifique** `ε = v²/2 − μ/r = −μ/(2a)` → constante
+- [ ] **Moment cinétique** `h = r × v` → constant
+- [ ] **Vis-viva** : `v² = μ·(2/r − 1/a)` vérifiée à tout point de l'orbite
+- [ ] **Deux-corps** → matche la conique analytique
+- [ ] **Vitesse terminale** (avec traînée) → matche la valeur analytique
+- [ ] **Δv en poussée** → matche Tsiolkovsky `Δv = Isp·g0·ln(m₀/m₁)`
+
+> **Note technique :** Une sim qui affiche de jolies trajectoires peut être totalement fausse. Ces vérités-terrain sont le seul moyen de savoir si ta physique est juste ou si ton rendu montre juste de belles erreurs.
+
+### Unit Tests
+- [ ] Ajouter un framework de test (gtest)
+- [ ] `tests/Integrators/` — dérive d'énergie par intégrateur sur orbite circulaire
+- [ ] `tests/Kepler/` — solveur de l'équation de Kepler (convergence, cas limites e→1)
+- [ ] `tests/Frames/` — transformations aller-retour (identité)
+- [ ] `tests/Atmosphere/` — profil de densité, continuité aux couches
+- [ ] `tests/Orbital/` — conversions état ↔ éléments orbitaux (aller-retour)
+
+### Integration & Determinism Tests
+- [ ] Orbite complète : énergie/moment conservés sur N tours
+- [ ] Descente complète : atterrissage doux reproductible
+- [ ] **Déterminisme** : mêmes entrées → état final identique au bit près (fixed timestep)
+
+### Performance Tests
+- [ ] Coût de la gravité n-corps avec N corps
+- [ ] Throughput de la propagation analytique pendant le warp
+
+**Why this matters:** Refactorer une sim sans ces tests, c'est piloter à l'aveugle. La dérive numérique est silencieuse.
+
+---
+
+## Technical Decisions
+
+### Numerical Integration
+- **Choix : Velocity Verlet / Leapfrog (symplectique)**
+  - Conserve l'énergie sur le long terme → orbites fermées stables
+  - RK4 disponible pour comparaison mais PAS pour les orbites longues (dérive)
+  - Euler semi-implicite gardé comme référence pédagogique
+
+**Pourquoi :** Le symplectique est non négociable pour une sim orbitale. C'est la décision la plus structurante.
+
+### Gravity Model
+- **Choix : Hybride — corps sur rails képlériens, vaisseau en n-corps sommé**
+  - Système solaire stable et fidèle (rails analytiques)
+  - Orbites émergentes, points de Lagrange, perturbations côté vaisseau
+  - Permet le time warp via propagation analytique
+
+**Pourquoi :** Le n-corps complet sur les planètes dérive et déstabilise le système. C'est le compromis d'Orbiter/KSP.
+
+### Precision
+- **Choix : `float64` pour toute la physique, origine flottante pour le rendu**
+  - `float32` insuffisant aux distances astronomiques (tremblement)
+  - Conversion en simple seulement après soustraction de l'origine flottante
+
+### Units & Conventions
+- **SI partout** : m, kg, s, rad
+- **`μ = GM`** chargé directement (plus précis que `G·M`)
+- **Repère principal** : inertiel héliocentrique
+- Conventions de repère documentées dès la Phase 0
+
+### Determinism
+- **Fixed timestep** strict → simulation reproductible, testable, et compatible warp analytique
+
+### Math Library
+- **Option A : GLM** (déjà connu via le game engine — `glm::dvec3`, `glm::dquat` en double)
+- **Option B : Eigen** (plus complet pour l'algèbre linéaire, tenseur d'inertie)
+- **Recommandation :** GLM pour rester cohérent avec VoxelEngine et limiter la charge mentale en alternant les projets
+
+### Relationship to VoxelEngine
+- Projet **standalone** au départ (besoins de précision/échelle trop différents d'un moteur de jeu)
+- Réutilise les **patterns** (ServiceLocator, fixed timestep, manager lifecycle, structure de dépôt) pour que passer d'un projet à l'autre soit fluide
+- Intégration du rendu via VoxelEngine envisageable plus tard, pas une priorité
+
+---
+
+## Priority Order (Next Steps)
+
+**Suis cet ordre exact pour démarrer :**
+
+### Immediate Priority (v0.1.0 — Sim Core)
+1. **State representation** — le vecteur d'état (Phase 0.1)
+2. **Fixed timestep loop** — la boucle accumulateur (Phase 0.2)
+3. **TimeManager** — temps fixe + base du warp (Phase 0.3)
+4. **Integrators** — Euler + Velocity Verlet (Phase 0.4)
+5. **Constants & units** — SI, μ, logger (Phase 0.5)
+
+### Short-term Priority (v0.1.0 — First Orbit)
+6. **Single body + particle** — gravité d'un corps (Phase 1.1)
+7. **Integrator comparison** — voir Euler dériver, Verlet tenir (Phase 1.2)
+8. **Conservation checks** — énergie, moment, période (Phase 1.3)
+9. **Minimal 2D rendering** — *l'orbite à l'écran* (motivation !) (Phase 1.4)
+
+### Medium-term Priority (v0.2.0 — Solar System)
+10. **Gravity accumulation** — somme n-corps sur le vaisseau (Phase 2.1)
+11. **Hybrid model** — décision rails vs n-corps (Phase 2.2)
+12. **Collision detection** — surface des corps (Phase 2.3)
+13. **CelestialBody + Keplerian rails** — corps analytiques (Phase 3.1–3.2)
+14. **SOI + data-driven loading** — système solaire réel depuis JSON (Phase 3.3–3.4)
+15. **Coordinate frames + floating origin** — la précision (Phase 4)
+
+### Long-term Priority (v0.3.0 — The Vessel)
+16. **Rigid body 6DOF** — orientation, inertie (Phase 5.1)
+17. **Mass properties + propulsion** — masse variable, moteurs (Phase 5.2–5.3)
+18. **Staging + RCS** — étages, attitude (Phase 5.4–5.5)
+19. **Validation: Tsiolkovsky, vis-viva** — tests analytiques (Validation)
+
+### Feature Complete (v0.4.0 — Atmosphere & Flight)
+20. **Atmosphere model (multi-layer)** — densité, composition (Phase 6)
+21. **Aerodynamics** — traînée, Q, vitesse relative (Phase 7)
+22. **Attitude control (PID)** — maintien d'orientation (Phase 8.1–8.2)
+23. **Powered descent / landing** — *l'atterrissage autonome* (Phase 8.3)
+
+### Map & Time (v0.5.0)
+24. **State ↔ orbital elements** — conversions (Phase 9.1)
+25. **Trajectory prediction** — coniques raccordées (Phase 9.2)
+26. **Maneuver nodes** — planification (Phase 9.3)
+27. **Time warp** — propagation analytique (Phase 10)
+
+### Polish & Tools (v0.6.0+)
+28. **Rendering: map/flight view, HUD, orbit lines** (Phase 11)
+29. **Ascent guidance** — mise en orbite auto (Phase 8.4)
+30. **Sandbox, debug viz, scenarios** (Phase 12)
+31. **Reentry heating + effects** (Phase 7.4 / 11.5)
+
+---
+
+## Build System
+
+### Dependencies to Add Progressively
+
+**Phase 0–1 (v0.1.0 — Core & First Orbit):**
+- [ ] GLM (avec `dvec3`/`dquat` double précision) — maths vecteurs/quaternions
+- [ ] Un framework de rendu 2D simple (SDL2, ou réutiliser SDL2+bgfx du game engine)
+
+**Phase 3 (v0.2.0 — Solar System):**
+- [ ] nlohmann-json — chargement data-driven des corps et atmosphères
+
+**Testing (dès v0.1.0) :**
+- [ ] Google Test (gtest) — tests unitaires (commencer tôt avec les conservation checks)
+
+**Phase 11 (v0.6.0 — Rendering 3D) :**
+- [ ] bgfx (+ bx, bimg) — rendu 3D multiplateforme (cohérent avec VoxelEngine)
+- [ ] Dear ImGui — HUD debug et inspecteurs
+
+**Optional / Advanced :**
+- [ ] Eigen — si besoin d'algèbre linéaire avancée (tenseurs d'inertie complexes)
+- [ ] Tracy — profiling
+
+---
+
+## Notes & Best Practices
+
+### Development Workflow
+- **Commence en 2D** — valide tout le cœur (boucle, intégrateur, conservation) avant la 3D
+- **Valide contre l'analytique en continu** — chaque nouvelle force a une vérité-terrain
+- **Commits atomiques** — un commit par feature
+- **Tests tôt** — les conservation checks dès la Phase 1
+- **Profile, mais pas prématurément** — la direct summation suffit pour un système solaire
+
+### Simulation Guidelines
+- **Fixed timestep sacré** — jamais de `dt` variable dans la physique (casse le déterminisme)
+- **Symplectique pour les orbites** — RK4 seulement pour comparer
+- **Double précision physique, simple précision rendu** — toujours via origine flottante
+- **Corps sur rails, vaisseau en n-corps** — ne jamais simuler les planètes en n-corps complet
+- **Sépare sim et rendu** — le cœur physique doit tourner et se tester sans fenêtre
+- **`μ` directement** — plus précis que `G·M`
+
+### Debugging Tips
+- **Trace l'énergie et le moment cinétique** — leur dérive révèle les bugs d'intégration
+- **Visualise les vecteurs de force** — gravité/poussée/traînée en temps réel
+- **Compare deux intégrateurs côte à côte** — pour isoler erreur d'intégration vs erreur de modèle
+- **Scénarios reproductibles** — sauvegarde l'état au moment d'un bug (déterminisme aide)
+
+### Conceptual Reminders
+- **Une orbite = chute permanente + vitesse latérale suffisante pour rater le sol**
+- **Trop lent → s'écrase · bonne vitesse → orbite · trop rapide → s'échappe**
+- **Le modèle de forces est le seul morceau qui change selon le sous-domaine** — le reste (boucle, intégrateur, état, repères) est universel
+
+### Documentation Resources
+- **GLM**: https://github.com/g-truc/glm
+- **bgfx**: https://bkaradzic.github.io/bgfx/
+- **Orbital mechanics (vis-viva, Kepler)**: tout cours de mécanique spatiale ; voir aussi les notes d'implémentation d'Orbiter
+- **Symplectic integrators**: chercher « velocity Verlet » et « leapfrog energy conservation »
+
+---
+
+**Roadmap complète. Commence par la Phase 0, vise une orbite 2D stable le plus vite possible (Phase 1.4), puis empile les couches. Bonne construction !**
