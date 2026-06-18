@@ -27,7 +27,8 @@
 16. [Technical Decisions](#technical-decisions)
 17. [Priority Order (Next Steps)](#priority-order-next-steps)
 18. [Build System](#build-system)
-19. [Notes & Best Practices](#notes--best-practices)
+19. [Phase 13: GPU Particle Field (CUDA)](#phase-13-gpu-particle-field-cuda)
+20. [Notes & Best Practices](#notes--best-practices)
 
 ---
 
@@ -72,12 +73,12 @@
 ### 0.1 State Representation
 **Purpose:** Définir ce qui décrit complètement le système à l'instant `t`
 
-- [ ] Créer `src/Core/State.hpp`
-- [ ] Translation state : `dvec3 position`, `dvec3 velocity` (double précision)
-- [ ] Rotation state (ajouté en Phase 5) : `dquat orientation`, `dvec3 angularVelocity`
-- [ ] `double mass` (variable — diminue quand le carburant brûle)
-- [ ] Séparer clairement l'état (intégré) des dérivées (forces/couples calculés chaque pas)
-- [ ] Structure `Derivative { dvec3 dPosition; dvec3 dVelocity; }` pour les intégrateurs multi-étapes
+- [x] Créer `src/Core/State.hpp`
+- [x] Translation state : `dvec3 position`, `dvec3 velocity` (double précision)
+- [x] Rotation state (ajouté en Phase 5) : `dquat orientation`, `dvec3 angularVelocity`
+- [x] `double mass` (variable — diminue quand le carburant brûle)
+- [x] Séparer clairement l'état (intégré) des dérivées (forces/couples calculés chaque pas)
+- [x] Structure `Derivative { dvec3 dPosition; dvec3 dVelocity; }` pour les intégrateurs multi-étapes
 
 **Why this matters:** L'intégrateur ne fait qu'avancer ce vecteur d'état dans le temps. Tout ce qui n'est pas dedans n'existe pas pour la physique.
 
@@ -92,6 +93,7 @@
 - [ ] Stocker l'état précédent + courant pour l'interpolation
 
 > **Note technique :** Le `dt` fixe est non négociable pour le déterminisme. Un `dt` variable rend la simulation non reproductible et fait dériver les orbites différemment selon le framerate.
+> Si un `dt` adaptatif (plus petit près des corps) est un jour souhaité, le critère de switch doit être basé exclusivement sur l'état de la simulation (ex. altitude, distance au corps dominant) — jamais sur le framerate ou un timer mural. Un critère non déterministe réintroduit la non-reproductibilité que le fixed timestep cherche à éliminer.
 
 **Why this matters:** C'est le cœur de toute sim. Découpler physique et rendu donne déterminisme + stabilité.
 
@@ -121,6 +123,8 @@
 
 > **Note technique :** RK4 ne conserve PAS l'énergie : une orbite censée être stable spirale lentement. Velocity Verlet / leapfrog sont symplectiques → l'énergie oscille autour d'une valeur fixe sans dériver. C'est *la* clé d'orbites fermées indéfiniment.
 
+> **Note technique — Verlet et forces dépendant de la vitesse :** Le Velocity Verlet classique suppose `a = f(position)` uniquement. Dès que la traînée (Phase 7) ou la poussée dépend de la vitesse ou de la masse courante, la mise à jour `v += ½(a₀ + a₁)dt` devient implicite : `a₁` dépend de `v₁` qui n'est pas encore connu. Trois options : (1) itérer pour résoudre l'implicite (coûteux), (2) traiter le terme de traînée en semi-implicite — `F_drag ∝ −k·v`, ce qui se linéarise exactement — , (3) accepter une dégradation d'ordre pour ces termes. En pratique, l'intégrateur reste pleinement symplectique en orbite balistique (là où la précision à long terme compte), et approximatif en atmosphère/poussée (là où l'incertitude du modèle aéro domine de toute façon). **Décision à prendre consciemment** — ne pas la découvrir quand le test Tsiolkovsky ne matche pas.
+
 **Why this matters:** Mauvais intégrateur = orbites qui s'écrasent ou s'échappent toutes seules après quelques tours. Tout repose là-dessus.
 
 ### 0.5 Constants, Units & Logger
@@ -136,6 +140,11 @@
 > **Note technique :** Pour les vrais corps, `μ` est connu bien plus précisément que `G` ou `M` séparément. Charger `μ` directement évite d'accumuler l'imprécision de `G`.
 
 **Why this matters:** Les bugs d'unités et de repère sont les plus pénibles. Les fixer comme conventions évite des heures de debug.
+
+### Points d'intégration
+- **Prérequis :** aucun — c'est la fondation de tout le reste
+- **Fournit à :** toutes les phases — `State`, `SimulationLoop`, `TimeManager`, `Integrator`, `Constants` sont le squelette commun sur lequel chaque phase s'appuie
+- **Dans la boucle :** *définit* la boucle elle-même et les 6 étapes du Simulation Step Order
 
 ---
 
@@ -178,6 +187,11 @@
 
 **Why this matters:** Si ça marche, le cœur du moteur est validé. Tout le reste n'ajoute que des termes au modèle de forces.
 
+### Points d'intégration
+- **Prérequis :** Phase 0 complète (State, SimulationLoop, Integrator, TimeManager)
+- **Fournit à :** Phase 2 (GravitySystem single-body → base à généraliser en n-corps) · valide que le cœur est correct avant d'empiler les phases suivantes
+- **Dans la boucle :** Force layer étape 2 (gravité d'un corps fixe) + Integration layer étape 3 (Verlet sur position/vitesse)
+
 ---
 
 ## Phase 2: N-body Gravity & Multi-body
@@ -212,6 +226,11 @@
 
 **Why this matters:** Sans collision, le vaisseau traverse les planètes. C'est aussi la base de l'atterrissage.
 
+### Points d'intégration
+- **Prérequis :** Phase 0 (boucle + intégrateur) · Phase 1 (GravitySystem validé)
+- **Fournit à :** Phase 5 (événement collision → base de l'atterrissage propulsé) · Phase 10 (transitions SOI → le warp on-rails doit les détecter et re-raccorder la conique) · Phase 9 (hiérarchie SOI utilisée pour les coniques raccordées)
+- **Dans la boucle :** Force layer étape 2 (gravity accumulation sur N corps) · Events layer étape 5 (collision sol, transitions SOI)
+
 ---
 
 ## Phase 3: Celestial Bodies & Solar System
@@ -239,6 +258,7 @@
 - [ ] Cache de la position par frame (recalcul seulement si le temps change)
 
 > **Note technique :** L'itération de Newton sur l'équation de Kepler converge en ~3-5 itérations pour `e < 0.9`. Démarrer avec `E₀ = M` (ou `E₀ = π` pour les fortes excentricités).
+> **Note technique — cas hyperbolique :** Pour `e > 1` (trajectoire hyperbolique — typique d'un vaisseau entrant dans la SOI d'une lune), l'équation de Kepler devient `M = e·sinh(H) − H` (anomalie hyperbolique `H`), résolue par Newton-Raphson sur `H₀ = M/e`. Prévoir aussi le cas limite parabolique `e = 1` (`M = D + D³/3`, `D = tan(ν/2)`). Sans ça, la prédiction de flyby plante exactement au moment le plus intéressant (voir 9.2).
 
 ### 3.3 Sphere of Influence (SOI)
 **Purpose:** Déterminer quel corps domine à une position donnée
@@ -264,6 +284,11 @@
 - [ ] Repère tournant lié au corps (pour la position au sol, l'atmosphère qui tourne avec)
 
 **Why this matters:** La rotation du corps crée le « vent » atmosphérique (Phase 7) et détermine les positions au sol pour l'atterrissage.
+
+### Points d'intégration
+- **Prérequis :** Phase 0 (TimeManager pour `t`) · Phase 2 (gravity accumulation consomme les positions des corps à chaque pas)
+- **Fournit à :** Phase 2 (positions + μ des corps à chaque pas) · Phase 6 (modèle d'atmosphère + rotation attachés au corps) · Phase 9 (μ + éléments orbitaux pour les coniques et le solveur Kepler) · Phase 10 (rails képlériens = base de la propagation analytique en warp)
+- **Dans la boucle :** **Bodies layer — étape 1** (propagation képlérienne analytique, avant tout calcul de force du pas courant)
 
 ---
 
@@ -298,6 +323,11 @@
 
 **Why this matters:** C'est exactement là que KSP s'est cassé les dents. Régler ça tôt évite une réécriture douloureuse plus tard.
 
+### Points d'intégration
+- **Prérequis :** Phase 0 (State en float64) · Phase 3 (corps de référence pour définir les repères parent/tournants)
+- **Fournit à :** Phase 7 (vitesse relative à l'atmosphère tournante, via repère lié au corps) · Phase 11 (floating origin → conversion float64→float32 avant tout vertex shader) · Phase 13 (coordonnées locales fp32 pour les particules GPU, déjà en précision locale)
+- **Dans la boucle :** transformations à la demande — pas d'étape dédiée dans la boucle principale, mais l'origine flottante doit être rebased **avant** la conversion vers le rendu (étape 6)
+
 ---
 
 ## Phase 5: The Vessel (6DOF Rigid Body)
@@ -307,7 +337,9 @@
 ### 5.1 Rigid Body State
 **Purpose:** Ajouter la rotation à l'état
 
-- [ ] Étendre `State` : `dquat orientation`, `dvec3 angularVelocity`
+> **Rappel Phase 0.1 :** `State` ne contenait que position, vitesse et masse — la rotation était volontairement absente pour valider le cœur orbital sans complexité inutile. C'est ici qu'on l'ajoute, avec sa dérivée dans `Derivative` (`dQuat`, `dAngularVelocity`), car la dérivée d'un quaternion est `q̇ = ½·ω·q` — non triviale à intégrer.
+
+- [ ] Étendre `State` : `dquat orientation` (quaternion unité = pas de rotation), `dvec3 angularVelocity` (rad/s dans le body frame)
 - [ ] Tenseur d'inertie + centre de masse
 - [ ] Intégration de l'orientation : `q̇ = ½ · ω · q` (ω en quaternion pur), renormaliser `q` chaque pas
 - [ ] Accumulation des couples → `α = I⁻¹ · (τ − ω × (I·ω))`
@@ -327,7 +359,7 @@
 - [ ] Créer `src/Vessel/Engine.hpp`
 - [ ] Poussée (N), impulsion spécifique `Isp` (s)
 - [ ] Débit massique : `ṁ = F / (Isp · g0)`
-- [ ] Manette des gaz (throttle 0–1)
+- [ ] Manette des gaz (throttle 0-1)
 - [ ] Poussée appliquée dans le body frame, transformée en repère monde avant intégration
 - [ ] Orientation de la poussée (gimbal) : vecteur de poussée orientable de quelques degrés
 
@@ -347,6 +379,11 @@
 > **Note technique :** Vérifie ton modèle avec l'équation de Tsiolkovsky : `Δv = Isp·g0·ln(m₀/m₁)`. Le Δv obtenu en intégrant une poussée constante dans le vide doit matcher cette formule.
 
 **Why this matters:** C'est le passage du « caillou en orbite » à une vraie fusée pilotable.
+
+### Points d'intégration
+- **Prérequis :** Phase 0 (State étendu avec orientation + angularVelocity) · Phase 2 (gravité reçue en n-corps) · Phase 3 (corps dominant pour l'orientation locale et le frame body)
+- **Fournit à :** Phase 6/7 (section transversale, altitude, vitesse du vaisseau) · Phase 8 (moteurs + RCS disponibles à commander) · Phase 9 (masse courante pour les calculs Δv)
+- **Dans la boucle :** Force layer étape 2 (poussée en body frame → world) · Integration layer étape 3 (quaternion + ω) · **Mass layer — étape 4** (décrément carburant après intégration)
 
 ---
 
@@ -379,6 +416,11 @@
 - [ ] Corps sans atmosphère = modèle nul (densité 0 partout)
 
 **Why this matters:** L'atmosphère alimente toute l'aérodynamique. Multi-couches + composition = des planètes qui se « sentent » vraiment différentes.
+
+### Points d'intégration
+- **Prérequis :** Phase 3 (rayon + rotation sidérale du corps pour l'altitude et la vitesse du vent) · Phase 4 (altitude = |r − r_corps| − rayon, calculée dans le repère du corps)
+- **Fournit à :** Phase 7 (ρ(h), P(h), T(h), c(h) à chaque pas de la Force layer) · Phase 8 (densité locale utilisée dans le calcul de suicide burn et de drag en descente)
+- **Dans la boucle :** consultée dans la **Force layer — étape 2** par AeroSystem · service passif, pas d'étape propre dans la boucle principale
 
 ---
 
@@ -415,6 +457,11 @@
 - [ ] Effets visuels (Phase 11)
 
 **Why this matters:** L'aéro transforme l'ascension et la rentrée en vrais défis. Le « max Q » et le freinage atmosphérique deviennent tangibles.
+
+### Points d'intégration
+- **Prérequis :** Phase 5 (vitesse + section transversale du vaisseau) · Phase 6 (ρ(h)) · Phase 4 (repère tournant → vitesse relative à l'atmosphère, pas la vitesse inertielle)
+- **Fournit à :** Phase 8 (pression dynamique Q pour les limites structurelles et les calculs GNC) · la traînée crée un écart entre trajectoire réelle et prédiction conique de Phase 9 — écart attendu et normal
+- **Dans la boucle :** **Force layer — étape 2** (F_drag accumulé avec gravité et poussée) · attention : force dépendant de la vitesse → traiter en semi-implicite (voir note technique 0.4)
 
 ---
 
@@ -457,6 +504,11 @@
 
 **Why this matters:** C'est le payoff de la fusée : décoller, se mettre en orbite, et se reposer — le tout en émergeant de la physique.
 
+### Points d'intégration
+- **Prérequis :** Phase 5 (moteurs + RCS + état 6DOF complet) · Phase 6/7 (ρ et Q pour les calculs de descente et de drag) · Phase 9 (éléments orbitaux pour les modes d'attitude prograde/rétrograde/normal)
+- **Fournit à :** Phase 5 (commandes throttle, gimbal, δ-RCS appliquées à chaque pas physique)
+- **Dans la boucle :** le GNC peut tourner à une fréquence inférieure à la physique (ex. 10 Hz vs 60 Hz fixe) · ses commandes sont lues par la **Force layer — étape 2** au pas physique suivant
+
 ---
 
 ## Phase 9: Orbital Mechanics & Trajectory Prediction
@@ -475,6 +527,7 @@
 
 - [ ] Propager la conique analytiquement pour tracer l'orbite future
 - [ ] Coniques raccordées : prédire à travers les transitions de SOI
+- [ ] **Gérer les trois types de coniques :** ellipse (`e < 1`), parabole (`e = 1`), hyperbole (`e > 1`) — un vaisseau entrant dans la SOI d'une lune est presque toujours en trajectoire hyperbolique relative à elle
 - [ ] Vérifier avec l'équation vis-viva : `v² = μ·(2/r − 1/a)`
 
 ### 9.3 Maneuver Nodes
@@ -487,6 +540,11 @@
 > **Note technique :** La prédiction utilise des coniques analytiques (rapide, déterministe), pendant que le vol réel utilise l'intégration n-corps. Léger écart attendu près des points de Lagrange — c'est normal et acceptable.
 
 **Why this matters:** Sans prédiction d'orbite, impossible de planifier des manœuvres. C'est ce qui rend une sim orbitale jouable.
+
+### Points d'intégration
+- **Prérequis :** Phase 3 (μ + hiérarchie SOI) · Phase 4 (repères pour les conversions état↔éléments) · Phase 3.2 étendu (solveur Kepler hyperbolique — e > 1 fréquent à l'entrée d'une SOI de lune, voir note 3.2)
+- **Fournit à :** Phase 10 (éléments orbitaux → propagation analytique on-rails) · Phase 11 (éléments → lignes d'orbite à afficher) · Phase 8 (prograde/rétrograde/normal déduits de v et h)
+- **Dans la boucle :** **hors boucle principale** — calcul à la demande (prédiction, vue carte, nœuds de manœuvre) · ne doit jamais bloquer un pas physique
 
 ---
 
@@ -504,6 +562,7 @@
 - [ ] En warp élevé : convertir l'état du vaisseau en éléments orbitaux et le propager analytiquement (conique deux-corps autour du corps dominant)
 - [ ] Gérer les transitions de SOI pendant le warp (re-raccorder la conique)
 - [ ] Revenir en intégration n-corps dès que le joueur reprend la main (physics warp bas)
+- [ ] **Collision analytique pendant le warp :** la détection pas-à-pas (2.3) ne suffit plus — à 10000×, le vaisseau peut « traverser » un corps entre deux évaluations. Si le périapse de la conique courante est inférieur au rayon du corps, calculer l'instant exact d'impact (intersection conique/sphère) et arrêter le warp à cet instant.
 
 ### 10.3 Physics Warp (Low Levels)
 **Purpose:** Garder la physique active aux warps faibles
@@ -514,6 +573,11 @@
 > **Note technique :** C'est la deuxième raison du modèle hybride : la propagation analytique pendant le warp n'est possible que parce qu'on a déjà les éléments orbitaux et la structure deux-corps/SOI.
 
 **Why this matters:** Une orbite peut durer des heures voire des années. Sans warp, impossible d'observer le système.
+
+### Points d'intégration
+- **Prérequis :** Phase 9 (éléments orbitaux du vaisseau pour la propagation) · Phase 3 (rails des corps pour les transitions SOI en warp) · Phase 2.3 étendu (collision analytique : si périapse < rayon du corps → stopper le warp à l'instant exact, voir note 10.2)
+- **Fournit à :** rien en aval — feature utilisateur finale
+- **Dans la boucle :** en warp élevé, **remplace les étapes 2–3** (force + intégration n-corps) par la propagation analytique de Phase 9 · en physics warp bas (≤ 4×), conserve les étapes 1–5 avec sous-pas multiples
 
 ---
 
@@ -557,6 +621,11 @@
 
 **Why this matters:** En tant que graphics programmer, c'est ton terrain — mais garde le rendu découplé de la physique.
 
+### Points d'intégration
+- **Prérequis :** Phase 4 (floating origin → conversion float64→float32 avant tout vertex) · Phase 9 (éléments orbitaux → lignes d'orbite) · Phase 0 (state interpolé via `alpha` pour lisser le rendu entre deux pas physiques)
+- **Fournit à :** rien en aval — sortie finale vers l'utilisateur
+- **Dans la boucle :** **Interpolation layer — étape 6** : lit les deux états `t₋₁` et `t`, interpole avec `alpha`, puis envoie au GPU · la boucle de rendu tourne à son propre framerate, totalement découplée
+
 ---
 
 ## Phase 12: Sandbox & Editor Tools
@@ -578,6 +647,11 @@
 - [ ] Sauvegarde/chargement de l'état complet (déterministe)
 
 **Why this matters:** Itérer vite sur les modes de vol sans tout relancer à zéro.
+
+### Points d'intégration
+- **Prérequis :** Phase 0 (déterminisme — save/load = snapshot de l'état canonique, reproductible au bit près) · Phase 9 + 11 (vue carte + inspecteur d'état pour les outils de debug)
+- **Fournit à :** rien en aval physique — outils éditeur uniquement
+- **Dans la boucle :** **hors boucle principale** — les outils lisent l'état entre les pas et n'écrivent que via les commandes normales (throttle, chargement de scénario) ; jamais d'écriture directe dans l'état canonique
 
 ---
 
@@ -642,20 +716,7 @@
 ### Precision
 - **Choix : `float64` pour toute la physique, origine flottante pour le rendu**
   - `float32` insuffisant aux distances astronomiques (tremblement)
-  - Conversion en simple seulement après soustraction de l'origine flottante
-
-### Units & Conventions
-- **SI partout** : m, kg, s, rad
-- **`μ = GM`** chargé directement (plus précis que `G·M`)
-- **Repère principal** : inertiel héliocentrique
-- Conventions de repère documentées dès la Phase 0
-
-### Determinism
-- **Fixed timestep** strict → simulation reproductible, testable, et compatible warp analytique
-
-### Math Library
-- **Option A : GLM** (déjà connu via le game engine — `glm::dvec3`, `glm::dquat` en double)
-- **Option B : Eigen** (plus complet pour l'algèbre linéaire, tenseur d'inertie)
+  - Conversion en simple seulement après soustraction de l'origine lgèbre linéaire, tenseur d'inertie)
 - **Recommandation :** GLM pour rester cohérent avec VoxelEngine et limiter la charge mentale en alternant les projets
 
 ### Relationship to VoxelEngine
@@ -686,20 +747,20 @@
 10. **Gravity accumulation** — somme n-corps sur le vaisseau (Phase 2.1)
 11. **Hybrid model** — décision rails vs n-corps (Phase 2.2)
 12. **Collision detection** — surface des corps (Phase 2.3)
-13. **CelestialBody + Keplerian rails** — corps analytiques (Phase 3.1–3.2)
-14. **SOI + data-driven loading** — système solaire réel depuis JSON (Phase 3.3–3.4)
+13. **CelestialBody + Keplerian rails** — corps analytiques (Phase 3.1-3.2)
+14. **SOI + data-driven loading** — système solaire réel depuis JSON (Phase 3.3-3.4)
 15. **Coordinate frames + floating origin** — la précision (Phase 4)
 
 ### Long-term Priority (v0.3.0 — The Vessel)
 16. **Rigid body 6DOF** — orientation, inertie (Phase 5.1)
-17. **Mass properties + propulsion** — masse variable, moteurs (Phase 5.2–5.3)
-18. **Staging + RCS** — étages, attitude (Phase 5.4–5.5)
+17. **Mass properties + propulsion** — masse variable, moteurs (Phase 5.2-5.3)
+18. **Staging + RCS** — étages, attitude (Phase 5.4-5.5)
 19. **Validation: Tsiolkovsky, vis-viva** — tests analytiques (Validation)
 
 ### Feature Complete (v0.4.0 — Atmosphere & Flight)
 20. **Atmosphere model (multi-layer)** — densité, composition (Phase 6)
 21. **Aerodynamics** — traînée, Q, vitesse relative (Phase 7)
-22. **Attitude control (PID)** — maintien d'orientation (Phase 8.1–8.2)
+22. **Attitude control (PID)** — maintien d'orientation (Phase 8.1-8.2)
 23. **Powered descent / landing** — *l'atterrissage autonome* (Phase 8.3)
 
 ### Map & Time (v0.5.0)
@@ -714,13 +775,23 @@
 30. **Sandbox, debug viz, scenarios** (Phase 12)
 31. **Reentry heating + effects** (Phase 7.4 / 11.5)
 
+### GPU Particle Field (v0.6.0+, optionnelle — hors chemin critique)
+> Prérequis : cœur validé (Phase 1-2) + origine flottante (Phase 4) + rendu de base (Phase 11.1). Branchement : Phase 2 côté physique, Phase 11 côté rendu.
+32. **Scope & isolation** — frontière déterminisme, `GPUParticleSystem` (Phase 13.1)
+33. **Buffers GPU + interop** — SoA float32, VBO partagé (Phase 13.2)
+34. **Kernel passif** — champ qui orbite les corps sur rails, le « week-end » (Phase 13.3)
+35. **Spawning data-driven** — ceinture, anneaux, depuis JSON des corps (Phase 13.5)
+36. **Rendu interop** — point sprites sans round-trip CPU (Phase 13.7)
+37. **Validation déterminisme** — test « GPU on/off = état identique » (Phase 13.8)
+38. **Kernel mutuel n-body** — tuiles shared memory, la vitrine (Phase 13.4)
+
 ---
 
 ## Build System
 
 ### Dependencies to Add Progressively
 
-**Phase 0–1 (v0.1.0 — Core & First Orbit):**
+**Phase 0-1 (v0.1.0 — Core & First Orbit):**
 - [ ] GLM (avec `dvec3`/`dquat` double précision) — maths vecteurs/quaternions
 - [ ] Un framework de rendu 2D simple (SDL2, ou réutiliser SDL2+bgfx du game engine)
 
@@ -734,9 +805,113 @@
 - [ ] bgfx (+ bx, bimg) — rendu 3D multiplateforme (cohérent avec VoxelEngine)
 - [ ] Dear ImGui — HUD debug et inspecteurs
 
+**Phase 13 (v0.6.0+ — GPU Particle Field, optionnelle) :**
+- [ ] CUDA Toolkit (nvcc, runtime) — kernels GPU
+- [ ] Interop CUDA ↔ rendu : OpenGL (`cudaGraphicsGLRegisterBuffer`) ou équivalent bgfx
+- [ ] *(Optionnel)* Thrust — réductions, tri, stream compaction sans réécrire les primitives
+
 **Optional / Advanced :**
 - [ ] Eigen — si besoin d'algèbre linéaire avancée (tenseurs d'inertie complexes)
 - [ ] Tracy — profiling
+
+---
+
+## Phase 13: GPU Particle Field (CUDA)
+
+**Goal:** Ajouter un champ de particules massif (ceinture d'astéroïdes, anneaux planétaires, nuage de débris) simulé sur GPU — couche purement visuelle et vitrine technique, séparée du cœur déterministe. Optionnelle et parallèle au chemin principal : à attaquer une fois le cœur CPU validé (Phase 1-2), pour disposer du n-corps CPU comme référence de correction.
+
+### 13.1 Scope & Separation from Core
+**Purpose:** Définir ce que le GPU simule, et surtout ce qu'il ne simule PAS
+
+- [ ] Champ de particules = couche visuelle/expérimentale, HORS de la vérité canonique
+- [ ] Couplage à sens unique : les particules ressentent les corps, mais n'influencent jamais le vaisseau ni les corps
+- [ ] Aucune garantie de déterminisme bit-à-bit sur cette couche (assumé explicitement)
+- [ ] Manager dédié `GPUParticleSystem`, lifecycle séparé (même pattern que les autres managers)
+- [ ] Le cœur CPU float64 reste la seule référence ; activer/désactiver le GPU ne change rien à l'état canonique
+
+> **Note technique :** C'est la raison d'être de l'isolation. Le float GPU n'est pas déterministe gratuitement (ordre de réduction variable, atomics, fast-math, résultats dépendants du hardware). Mélanger ça au cœur saboterait la reproductibilité bit-à-bit. On confine donc le non-déterminisme à une couche qui le tolère — parce qu'elle est purement cosmétique.
+
+**Why this matters:** Tout repose sur cette frontière. Tant que le GPU n'écrit jamais dans l'état canonique, on garde le cœur déterministe ET on s'offre une vitrine GPU.
+
+### 13.2 Particle State & GPU Buffers
+**Purpose:** Représenter les particules en mémoire device
+
+- [ ] Structure of Arrays (SoA) : positions et vitesses en buffers séparés (accès coalescés)
+- [ ] `float32`, en coordonnées relatives à l'origine flottante (Phase 4) — PAS `float64`
+- [ ] Allocation device ; buffers ping-pong (lecture/écriture séparées) ou intégration in-place selon l'intégrateur
+- [ ] Interop CUDA ↔ rendu (OpenGL/bgfx) : buffer partagé (VBO) pour éviter le round-trip device→host→device
+
+> **Note technique :** fp32 suffit ici parce que les particules sont locales, exprimées relativement à l'origine flottante (la précision astronomique est déjà absorbée par le rebasing). C'est aussi un choix de débit : sur les cartes grand public, le fp64 est fortement bridé par rapport au fp32.
+
+### 13.3 Gravity Kernel — Passive Particles
+**Purpose:** Le cas simple et trivialement parallèle — les particules ressentent les corps, pas entre elles
+
+- [ ] Kernel : un thread = une particule ; sommer `aᵢ = −μᵢ · (r − rᵢ).normalized() / |r − rᵢ|²` sur les corps sur rails
+- [ ] Positions/μ des corps passés en mémoire constante (`__constant__`) — petit nombre, lus en broadcast par tous les threads
+- [ ] Intégration symplectique par particule (velocity Verlet) dans le kernel, même schéma que le cœur
+- [ ] Complexité O(n) en particules — embarrassingly parallel
+
+> **Note technique :** `__constant__` memory est idéale ici : ~50 corps lus par ~1M threads, c'est exactement le motif broadcast pour lequel le cache constant est optimisé. Charger les corps via mémoire globale gaspillerait de la bande passante.
+
+**Why this matters:** 80 % de l'effet visuel (anneaux, ceinture qui orbite) vient de ce kernel seul. C'est le « week-end » — fais-le marcher avant 13.4.
+
+### 13.4 Gravity Kernel — Mutual N-body (Optional)
+**Purpose:** Les particules s'attirent entre elles — le vrai morceau CUDA
+
+- [ ] Tiling avec mémoire partagée (`__shared__`) : charger des blocs de particules en shared, chaque thread accumule contre la tuile courante
+- [ ] Réduit drastiquement les accès mémoire globale (le goulot du n-body naïf)
+- [ ] O(n²) mais transformé de memory-bound en compute-bound par les tuiles ; Barnes-Hut O(n log n) pour passer à l'échelle supérieure
+- [ ] Softening obligatoire (réutiliser le paramètre de Phase 2.1) pour éviter les singularités
+
+> **Note technique :** Le kernel naïf est limité par la bande passante mémoire. En chargeant une tuile de p particules en shared et en la réutilisant pour tout le bloc, on amortit chaque lecture globale sur p threads et le kernel redevient compute-bound — là où le GPU brille.
+
+**Why this matters:** C'est le morceau qui impressionne vraiment en entretien. Mais il dépend d'un cœur validé et d'un kernel passif (13.3) qui marche.
+
+### 13.5 Field Sourcing & Spawning
+**Purpose:** Générer le champ depuis des paramètres
+
+- [ ] Ceinture : distribution sur un anneau (a_min..a_max), excentricités/inclinaisons faibles
+- [ ] Anneaux planétaires : autour d'un corps, dans son plan équatorial (lié à l'obliquité, Phase 3.5)
+- [ ] Vitesses initiales = vitesse circulaire locale `v = √(μ/r)` + dispersion contrôlée
+- [ ] Data-driven : décrire les champs (corps hôte, bornes, densité, dispersion) dans le JSON des corps (Phase 3.4)
+
+> **Note technique :** Initialise chaque particule à sa vitesse orbitale locale. À vitesse nulle, tout le champ tombe sur le corps au premier pas ; trop vite, tout s'éjecte. La dispersion donne l'épaisseur réaliste de l'anneau/ceinture.
+
+### 13.6 Lifecycle & Collision Handling (Optional)
+**Purpose:** Gérer la disparition des particules
+
+- [ ] Particule sous le rayon d'un corps → despawn (marquée morte)
+- [ ] Cull des particules trop éloignées de la zone d'intérêt
+- [ ] Pas de transition SOI fine — inutile pour une couche visuelle
+- [ ] Stream compaction si recyclage des particules mortes nécessaire (garder une densité constante)
+
+> **Note technique :** Un simple test de rayon + un cull de distance suffisent. La compaction n'est utile que si tu veux respawner activement.
+
+### 13.7 Rendering Integration
+**Purpose:** Afficher le champ sans jamais quitter le GPU
+
+- [ ] Point sprites / instanced rendering directement depuis le buffer GPU (interop CUDA↔GL, zéro copie)
+- [ ] Intégration origine flottante (Phase 4) : soustraire l'origine dans le vertex shader
+- [ ] LOD : réduire la densité affichée pour les champs lointains / en scaled space (Phase 4.3)
+
+> **Note technique :** Tout l'intérêt de l'interop CUDA↔GL : les positions sont calculées par le kernel et lues par le rendu sans jamais transiter par le CPU. La particule naît, vit et s'affiche sans quitter la VRAM.
+
+### 13.8 Validation & Determinism Boundary
+**Purpose:** Vérifier la couche GPU sans entamer les garanties du cœur
+
+- [ ] Comparer le kernel passif GPU vs la gravité CPU sur un petit jeu de particules : trajectoires identiques à la tolérance fp32 près
+- [ ] **Test de non-régression critique :** l'état du cœur doit rester bit-identique, que le champ GPU soit actif ou non
+- [ ] Conservation d'énergie du champ mutuel (avec softening — dérive attendue plus forte qu'en CPU fp64, c'est normal)
+- [ ] Throughput : nombre de particules à 60 Hz pour le kernel passif et le kernel mutuel
+
+> **Note technique :** Le test le plus important de toute la phase n'est pas sur le GPU mais sur le cœur : prouver que « GPU on » et « GPU off » donnent le MÊME état final canonique au bit près. Tant que ce test passe, la frontière de déterminisme tient et la couche GPU est « gratuite » du point de vue de la correction.
+
+**Why this matters:** Une vitrine GPU qui casserait silencieusement le déterminisme serait un piège. Ce test garantit que la vitrine reste additive, jamais intrusive.
+
+### Points d'intégration
+- **Prérequis :** Phase 3 (positions + μ des corps → mémoire constante GPU `__constant__`) · Phase 4 (floating origin → coordonnées locales fp32 déjà en précision locale pour les particules) · Phase 11.1 (rendu de base en place → interop CUDA↔GL pour le buffer partagé)
+- **Fournit à :** Phase 11 (buffer GPU → rendu direct par point sprites, zéro round-trip CPU)
+- **Dans la boucle :** `GPUParticleSystem::update()` lancé **après Bodies layer — étape 1** (positions de corps à jour) et avant le rendu · couplage à sens unique — jamais d'écriture dans l'état canonique (voir note 13.1)
 
 ---
 
