@@ -85,12 +85,12 @@
 ### 0.2 Fixed Timestep Loop
 **Purpose:** Faire tourner la physique à pas constant, indépendamment du framerate
 
-- [ ] Créer `src/Core/SimulationLoop.hpp` et `.cpp`
-- [ ] Pattern accumulateur : accumuler le temps réel, avancer la physique par chunks de `dt` fixe
-- [ ] `dt` physique fixe configurable (défaut 1/60 s, plus petit près des corps)
-- [ ] Cap du nombre de sous-pas par frame (éviter la spirale de la mort si le rendu lag)
-- [ ] Calculer un facteur d'interpolation `alpha` pour le rendu entre deux états physiques
-- [ ] Stocker l'état précédent + courant pour l'interpolation
+- [x] Créer `src/Core/SimulationLoop.hpp` et `.cpp`
+- [x] Pattern accumulateur : accumuler le temps réel, avancer la physique par chunks de `dt` fixe
+- [x] `dt` physique fixe configurable (défaut 1/60 s, plus petit près des corps)
+- [x] Cap du nombre de sous-pas par frame (éviter la spirale de la mort si le rendu lag)
+- [x] Calculer un facteur d'interpolation `alpha` pour le rendu entre deux états physiques
+- [x] Stocker l'état précédent + courant pour l'interpolation
 
 > **Note technique :** Le `dt` fixe est non négociable pour le déterminisme. Un `dt` variable rend la simulation non reproductible et fait dériver les orbites différemment selon le framerate.
 > Si un `dt` adaptatif (plus petit près des corps) est un jour souhaité, le critère de switch doit être basé exclusivement sur l'état de la simulation (ex. altitude, distance au corps dominant) — jamais sur le framerate ou un timer mural. Un critère non déterministe réintroduit la non-reproductibilité que le fixed timestep cherche à éliminer.
@@ -101,12 +101,13 @@
 **Purpose:** Source de temps unifiée, avec support du time warp
 
 - [ ] Créer `src/Core/TimeManager.hpp` et `.cpp`
+- [ ] Mesurer le temps réel entre deux frames avec `std::chrono::steady_clock` → `getDeltaTime()` (c'est cette valeur que `SimulationLoop::update()` attend en paramètre)
 - [ ] Temps de simulation cumulé (secondes depuis t0)
 - [ ] `fixedDeltaTime` : pas physique constant
 - [ ] `timeScale` / niveau de warp : 1×, 10×, 100×, 1000×, ...
 - [ ] Temps réel (mur) vs temps simulé
 - [ ] Calendrier optionnel : convertir secondes ↔ date (jours/années) pour l'affichage
-- [ ] Exposer `getSimTime()`, `getFixedDt()`, `getWarpLevel()`
+- [ ] Exposer `getSimTime()`, `getFixedDt()`, `getWarpLevel()`, `getDeltaTime()`
 
 **Why this matters:** Observer une orbite demande d'accélérer le temps. Le warp interagit avec l'intégration (voir Phase 10).
 
