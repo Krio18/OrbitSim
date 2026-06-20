@@ -14,11 +14,13 @@
   - `.claude/CLAUDE.md`
 
 ### Style de communication
+- chaque reponse doit commencer par mon prénom, `Killian`
 - Répondre en français
 - Être concis et clair
 - Expliquer le "pourquoi" derrière chaque décision technique
 
 ### Projet
+- Chaque getter DOIT utiliser l'attribue [[nodiscard]] avec ou sans message.
 - Sim aérospatiale C++20, physique déterministe, style KSP
 - Namespace : `Orbit`
 - Aucun code .cpp dans un fichier .hpp (déclaration et définition séparées)

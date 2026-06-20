@@ -11,9 +11,9 @@ namespace Orbit {
             double update(double elapsedTime);
 
             void setPrevousState(const State& previousState);
-            const State& getPreviousState() const;
 
-            const State& getCurrentState() const;
+            [[nodiscard]] const State& getPreviousState() const;
+            [[nodiscard]] const State& getCurrentState() const;
 
         private:
             double _dt;

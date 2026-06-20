@@ -15,13 +15,13 @@ namespace Orbit {
             };
 
             void setPosition(const glm::dvec3& position);
-            const glm::dvec3& getPosition() const;
+            [[nodiscard]] const glm::dvec3& getPosition() const;
 
             void setVelocity(const glm::dvec3& velocity);
-            const glm::dvec3& getVelocity() const;
+            [[nodiscard]] const glm::dvec3& getVelocity() const;
 
             void setMass(double mass);
-            const double& getMass() const;
+            [[nodiscard]] const double& getMass() const;
 
         private:
             glm::dvec3 _position;
