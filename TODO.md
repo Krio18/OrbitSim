@@ -100,14 +100,19 @@
 ### 0.3 TimeManager
 **Purpose:** Source de temps unifiée, avec support du time warp
 
-- [ ] Créer `src/Core/TimeManager.hpp` et `.cpp`
-- [ ] Mesurer le temps réel entre deux frames avec `std::chrono::steady_clock` → `getDeltaTime()` (c'est cette valeur que `SimulationLoop::update()` attend en paramètre)
-- [ ] Temps de simulation cumulé (secondes depuis t0)
-- [ ] `fixedDeltaTime` : pas physique constant
-- [ ] `timeScale` / niveau de warp : 1×, 10×, 100×, 1000×, ...
-- [ ] Temps réel (mur) vs temps simulé
-- [ ] Calendrier optionnel : convertir secondes ↔ date (jours/années) pour l'affichage
-- [ ] Exposer `getSimTime()`, `getFixedDt()`, `getWarpLevel()`, `getDeltaTime()`
+- [x] Créer `src/Core/TimeManager.hpp` et `.cpp`
+- [x] Mesurer le temps réel entre deux frames avec `std::chrono::steady_clock` → `getUnscaledDeltaTime()` (c'est cette valeur que `SimulationLoop::update()` attend en paramètre — pas la version scalée)
+- [x] Temps de simulation cumulé (secondes depuis t0)
+- [x] `fixedDeltaTime` : pas physique constant
+- [x] `_timeScale` : modificateur de vitesse général (0.0 = pause, 0.5 = ralenti cinématique, 1.0 = normal) — affecte `getDeltaTime()` et `_simTime`
+- [x] `_warpLevel` : accélération orbitale KSP (1×, 10×, 100×, 1000×) — multiplie uniquement `_simTime`, jamais passé à `SimulationLoop`
+- [x] Temps réel (mur) vs temps simulé
+- [x] Calendrier optionnel : convertir secondes ↔ date (jours/années) pour l'affichage
+- [x] Exposer `getSimTime()`, `getFixedDt()`, `getWarpLevel()`, `getDeltaTime()`
+- [x] Machine d'état `enum class State { Stopped, Running, Paused }` avec cycle de vie `start()` / `pause()` / `resume()` / `stop()`
+- [x] `setFixedDt()` verrouillé en état `Stopped` uniquement (protège le déterminisme)
+- [x] `_elapsedTime` avance en `Running` et `Paused`, pas en `Stopped`
+- [x] Calendrier grégorien exact (algorithme Howard Hinnant, `constexpr`)
 
 **Why this matters:** Observer une orbite demande d'accélérer le temps. Le warp interagit avec l'intégration (voir Phase 10).
 
@@ -146,6 +151,18 @@
 - **Prérequis :** aucun — c'est la fondation de tout le reste
 - **Fournit à :** toutes les phases — `State`, `SimulationLoop`, `TimeManager`, `Integrator`, `Constants` sont le squelette commun sur lequel chaque phase s'appuie
 - **Dans la boucle :** *définit* la boucle elle-même et les 6 étapes du Simulation Step Order
+
+### 0.x Intégration dans l'application
+**Purpose:** Brancher tous les composants Phase 0 dans `main.cpp` et valider la boucle de bout en bout
+
+- [ ] Instancier `TimeManager` et `SimulationLoop` dans `main()`
+- [ ] Boucle principale : appeler `timeManager.update()` puis `simulationLoop.update(timeManager.getUnscaledDeltaTime())`
+- [ ] Récupérer `alpha` et l'afficher (vérification visuelle que la boucle tourne)
+- [ ] Afficher `FPS`, `simTime`, `calendar` via les getters `TimeManager`
+- [ ] Instancier un `State` de test et vérifier les getters/setters
+- [ ] Instancier chaque intégrateur (Phase 0.4) et appeler `step()` une fois avec un `State` factice
+- [ ] Vérifier que la boucle tourne sans spirale de mort (cap 8 sous-pas actif)
+- [ ] **Success criteria :** La simulation tourne, le calendrier avance, alpha ∈ [0, 1]
 
 ---
 
@@ -193,6 +210,15 @@
 - **Fournit à :** Phase 2 (GravitySystem single-body → base à généraliser en n-corps) · valide que le cœur est correct avant d'empiler les phases suivantes
 - **Dans la boucle :** Force layer étape 2 (gravité d'un corps fixe) + Integration layer étape 3 (Verlet sur position/vitesse)
 
+### 1.x Intégration dans l'application
+**Purpose:** Brancher le premier corps + particule dans la boucle et valider l'orbite
+
+- [ ] Instancier un corps massif (μ fixe) et une particule (`State`) dans `main.cpp`
+- [ ] Appeler `GravitySystem` dans la Force layer (étape 2) de `SimulationLoop`
+- [ ] Logger l'énergie spécifique `ε` et le moment cinétique `h` à chaque tour
+- [ ] Lancer la même simulation avec Euler puis Velocity Verlet et comparer la dérive sur 100 tours
+- [ ] **Success criteria :** Orbite fermée et stable avec Velocity Verlet, dérive visible avec Euler
+
 ---
 
 ## Phase 2: N-body Gravity & Multi-body
@@ -231,6 +257,15 @@
 - **Prérequis :** Phase 0 (boucle + intégrateur) · Phase 1 (GravitySystem validé)
 - **Fournit à :** Phase 5 (événement collision → base de l'atterrissage propulsé) · Phase 10 (transitions SOI → le warp on-rails doit les détecter et re-raccorder la conique) · Phase 9 (hiérarchie SOI utilisée pour les coniques raccordées)
 - **Dans la boucle :** Force layer étape 2 (gravity accumulation sur N corps) · Events layer étape 5 (collision sol, transitions SOI)
+
+### 2.x Intégration dans l'application
+**Purpose:** Généraliser la gravité à N corps et valider la détection de collision
+
+- [ ] Remplacer le corps unique par une liste de N corps dans `GravitySystem`
+- [ ] Sommer les contributions gravitationnelles de tous les corps sur la particule chaque pas
+- [ ] Brancher la détection de collision dans l'Events layer (étape 5)
+- [ ] Logger les transitions de SOI détectées
+- [ ] **Success criteria :** Particule attirée par plusieurs corps simultanément, collision sol détectée
 
 ---
 
@@ -291,6 +326,15 @@
 - **Fournit à :** Phase 2 (positions + μ des corps à chaque pas) · Phase 6 (modèle d'atmosphère + rotation attachés au corps) · Phase 9 (μ + éléments orbitaux pour les coniques et le solveur Kepler) · Phase 10 (rails képlériens = base de la propagation analytique en warp)
 - **Dans la boucle :** **Bodies layer — étape 1** (propagation képlérienne analytique, avant tout calcul de force du pas courant)
 
+### 3.x Intégration dans l'application
+**Purpose:** Charger le système solaire depuis JSON et faire tourner les corps sur leurs rails
+
+- [ ] Charger le fichier JSON des corps et instancier les `CelestialBody`
+- [ ] Appeler la propagation képlérienne (Bodies layer — étape 1) dans `SimulationLoop`
+- [ ] Vérifier qu'un corps à `t = T + période` retrouve sa position initiale
+- [ ] Brancher la hiérarchie SOI et tester la détection de transition
+- [ ] **Success criteria :** Terre et Lune suivent leurs orbites analytiques sur plusieurs périodes sans dérive
+
 ---
 
 ## Phase 4: Coordinate Frames & Precision
@@ -328,6 +372,15 @@
 - **Prérequis :** Phase 0 (State en float64) · Phase 3 (corps de référence pour définir les repères parent/tournants)
 - **Fournit à :** Phase 7 (vitesse relative à l'atmosphère tournante, via repère lié au corps) · Phase 11 (floating origin → conversion float64→float32 avant tout vertex shader) · Phase 13 (coordonnées locales fp32 pour les particules GPU, déjà en précision locale)
 - **Dans la boucle :** transformations à la demande — pas d'étape dédiée dans la boucle principale, mais l'origine flottante doit être rebased **avant** la conversion vers le rendu (étape 6)
+
+### 4.x Intégration dans l'application
+**Purpose:** Brancher les repères et l'origine flottante avant le rendu
+
+- [ ] Instancier `FrameManager` et le relier aux `CelestialBody`
+- [ ] Convertir l'état physique (float64 héliocentrique) en coordonnées locales (float32) avant toute passe de rendu
+- [ ] Implémenter le rebasing de l'origine flottante quand le vaisseau dépasse le seuil de précision
+- [ ] Vérifier les transformations aller-retour (identitaires à la tolérance numérique près)
+- [ ] **Success criteria :** Position de rendu stable sans tremblement à 1 UA
 
 ---
 
@@ -386,6 +439,16 @@
 - **Fournit à :** Phase 6/7 (section transversale, altitude, vitesse du vaisseau) · Phase 8 (moteurs + RCS disponibles à commander) · Phase 9 (masse courante pour les calculs Δv)
 - **Dans la boucle :** Force layer étape 2 (poussée en body frame → world) · Integration layer étape 3 (quaternion + ω) · **Mass layer — étape 4** (décrément carburant après intégration)
 
+### 5.x Intégration dans l'application
+**Purpose:** Transformer la particule en vaisseau pilotable avec orientation et poussée
+
+- [ ] Étendre `State` et `Derivative` avec `orientation` et `angularVelocity`
+- [ ] Brancher l'intégration du quaternion (`q̇ = ½·ω·q`) dans Integration layer (étape 3)
+- [ ] Brancher le décrément de carburant dans Mass layer (étape 4)
+- [ ] Appliquer la poussée en body frame → world dans la Force layer (étape 2)
+- [ ] Vérifier Tsiolkovsky : Δv mesuré en simulation == `Isp · g0 · ln(m0/m1)`
+- [ ] **Success criteria :** Vaisseau peut changer d'orbite via une manœuvre de poussée
+
 ---
 
 ## Phase 6: Atmospheres (Multi-layer)
@@ -422,6 +485,15 @@
 - **Prérequis :** Phase 3 (rayon + rotation sidérale du corps pour l'altitude et la vitesse du vent) · Phase 4 (altitude = |r − r_corps| − rayon, calculée dans le repère du corps)
 - **Fournit à :** Phase 7 (ρ(h), P(h), T(h), c(h) à chaque pas de la Force layer) · Phase 8 (densité locale utilisée dans le calcul de suicide burn et de drag en descente)
 - **Dans la boucle :** consultée dans la **Force layer — étape 2** par AeroSystem · service passif, pas d'étape propre dans la boucle principale
+
+### 6.x Intégration dans l'application
+**Purpose:** Associer un profil atmosphérique à chaque corps et le rendre disponible à la Force layer
+
+- [ ] Associer un `AtmosphereModel` à chaque `CelestialBody` lors du chargement JSON
+- [ ] Appeler `atmo.getDensity(altitude)` dans la Force layer avant `AeroSystem`
+- [ ] Vérifier le profil : `ρ(0) == ρ₀` des données, `ρ` nul au-delà de l'altitude limite
+- [ ] Tester la continuité de pression aux frontières de couches
+- [ ] **Success criteria :** Densité atmosphérique correcte à chaque altitude, corps sans atmosphère retourne 0
 
 ---
 
@@ -463,6 +535,15 @@
 - **Prérequis :** Phase 5 (vitesse + section transversale du vaisseau) · Phase 6 (ρ(h)) · Phase 4 (repère tournant → vitesse relative à l'atmosphère, pas la vitesse inertielle)
 - **Fournit à :** Phase 8 (pression dynamique Q pour les limites structurelles et les calculs GNC) · la traînée crée un écart entre trajectoire réelle et prédiction conique de Phase 9 — écart attendu et normal
 - **Dans la boucle :** **Force layer — étape 2** (F_drag accumulé avec gravité et poussée) · attention : force dépendant de la vitesse → traiter en semi-implicite (voir note technique 0.4)
+
+### 7.x Intégration dans l'application
+**Purpose:** Brancher la traînée dans la Force layer et valider contre la vitesse terminale analytique
+
+- [ ] Brancher `AeroSystem` dans la Force layer (étape 2) après la gravité
+- [ ] Calculer la vitesse relative à l'atmosphère tournante via `FrameManager` (Phase 4)
+- [ ] Logger `F_drag`, `Q`, et le nombre de Mach à chaque pas
+- [ ] Comparer la vitesse terminale simulée à la valeur analytique `v_t = √(2mg / (ρ·Cd·A))`
+- [ ] **Success criteria :** Satellite en orbite basse freine et rentre en atmosphère de façon réaliste
 
 ---
 
@@ -510,6 +591,14 @@
 - **Fournit à :** Phase 5 (commandes throttle, gimbal, δ-RCS appliquées à chaque pas physique)
 - **Dans la boucle :** le GNC peut tourner à une fréquence inférieure à la physique (ex. 10 Hz vs 60 Hz fixe) · ses commandes sont lues par la **Force layer — étape 2** au pas physique suivant
 
+### 8.x Intégration dans l'application
+**Purpose:** Brancher les contrôleurs GNC et valider l'atterrissage autonome
+
+- [ ] Brancher `AttitudeController` : lit l'orientation courante, émet commandes gimbal/RCS à chaque cycle GNC
+- [ ] Activer le mode prograde et vérifier la convergence de l'erreur d'orientation
+- [ ] Implémenter la descente propulsée et valider vitesse d'impact < 2 m/s
+- [ ] **Success criteria :** Atterrissage autonome reproductible sans intervention manuelle
+
 ---
 
 ## Phase 9: Orbital Mechanics & Trajectory Prediction
@@ -547,6 +636,15 @@
 - **Fournit à :** Phase 10 (éléments orbitaux → propagation analytique on-rails) · Phase 11 (éléments → lignes d'orbite à afficher) · Phase 8 (prograde/rétrograde/normal déduits de v et h)
 - **Dans la boucle :** **hors boucle principale** — calcul à la demande (prédiction, vue carte, nœuds de manœuvre) · ne doit jamais bloquer un pas physique
 
+### 9.x Intégration dans l'application
+**Purpose:** Exposer les éléments orbitaux et la prédiction de trajectoire hors boucle physique
+
+- [ ] Appeler la conversion `State → éléments orbitaux` depuis l'état courant entre deux pas physiques
+- [ ] Propager la conique analytiquement et fournir les points au rendu (Phase 11)
+- [ ] Placer un nœud de manœuvre et vérifier l'orbite résultante prédite
+- [ ] Vérifier vis-viva à chaque point propagé : `v² = μ·(2/r − 1/a)`
+- [ ] **Success criteria :** Prédiction correcte, nœuds de manœuvre fonctionnels, sans jamais bloquer un pas physique
+
 ---
 
 ## Phase 10: Time Warp
@@ -579,6 +677,15 @@
 - **Prérequis :** Phase 9 (éléments orbitaux du vaisseau pour la propagation) · Phase 3 (rails des corps pour les transitions SOI en warp) · Phase 2.3 étendu (collision analytique : si périapse < rayon du corps → stopper le warp à l'instant exact, voir note 10.2)
 - **Fournit à :** rien en aval — feature utilisateur finale
 - **Dans la boucle :** en warp élevé, **remplace les étapes 2–3** (force + intégration n-corps) par la propagation analytique de Phase 9 · en physics warp bas (≤ 4×), conserve les étapes 1–5 avec sous-pas multiples
+
+### 10.x Intégration dans l'application
+**Purpose:** Implémenter le switch warp dans SimulationLoop et valider la cohérence à la reprise
+
+- [ ] Implémenter le switch : remplacer étapes 2–3 par propagation analytique au-dessus d'un seuil de warp
+- [ ] Interdire le warp élevé en atmosphère ou sous poussée active
+- [ ] Tester une transition SOI complète pendant le warp (re-raccordement de la conique)
+- [ ] Valider la collision analytique : périapse < rayon → arrêt du warp à l'instant exact calculé
+- [ ] **Success criteria :** Orbite propagée à 1000× restituée fidèlement à la reprise en n-corps, état cohérent
 
 ---
 
@@ -627,6 +734,16 @@
 - **Fournit à :** rien en aval — sortie finale vers l'utilisateur
 - **Dans la boucle :** **Interpolation layer — étape 6** : lit les deux états `t₋₁` et `t`, interpole avec `alpha`, puis envoie au GPU · la boucle de rendu tourne à son propre framerate, totalement découplée
 
+### 11.x Intégration dans l'application
+**Purpose:** Initialiser la fenêtre et brancher le rendu découplé sur la boucle physique
+
+- [ ] Initialiser la fenêtre SDL2/bgfx et la boucle de rendu à son propre framerate
+- [ ] Lire `alpha` depuis `SimulationLoop`, interpoler `State` pour lisser le rendu entre deux pas physiques
+- [ ] Brancher l'origine flottante (Phase 4) avant toute conversion float64→float32
+- [ ] Tracer les lignes d'orbite depuis les éléments orbitaux (Phase 9)
+- [ ] Afficher le HUD (altitude, vitesse, carburant, apoapse/périapse)
+- [ ] **Success criteria :** Vaisseau visible, orbite tracée, HUD mis à jour — rendu entièrement découplé de la physique
+
 ---
 
 ## Phase 12: Sandbox & Editor Tools
@@ -653,6 +770,15 @@
 - **Prérequis :** Phase 0 (déterminisme — save/load = snapshot de l'état canonique, reproductible au bit près) · Phase 9 + 11 (vue carte + inspecteur d'état pour les outils de debug)
 - **Fournit à :** rien en aval physique — outils éditeur uniquement
 - **Dans la boucle :** **hors boucle principale** — les outils lisent l'état entre les pas et n'écrivent que via les commandes normales (throttle, chargement de scénario) ; jamais d'écriture directe dans l'état canonique
+
+### 12.x Intégration dans l'application
+**Purpose:** Brancher les outils de debug et le système de scénarios sur l'état canonique
+
+- [ ] Brancher Dear ImGui pour l'inspecteur d'état live (position, vitesse, éléments orbitaux)
+- [ ] Afficher les vecteurs de force (gravité, poussée, traînée) en temps réel via ImGui
+- [ ] Implémenter save/load de l'état complet et vérifier la reproductibilité bit-à-bit
+- [ ] Charger un scénario depuis fichier et rejouer depuis cet état
+- [ ] **Success criteria :** Scénario sauvegardé, rechargé et rejoué de façon bit-identique
 
 ---
 
@@ -913,6 +1039,15 @@
 - **Prérequis :** Phase 3 (positions + μ des corps → mémoire constante GPU `__constant__`) · Phase 4 (floating origin → coordonnées locales fp32 déjà en précision locale pour les particules) · Phase 11.1 (rendu de base en place → interop CUDA↔GL pour le buffer partagé)
 - **Fournit à :** Phase 11 (buffer GPU → rendu direct par point sprites, zéro round-trip CPU)
 - **Dans la boucle :** `GPUParticleSystem::update()` lancé **après Bodies layer — étape 1** (positions de corps à jour) et avant le rendu · couplage à sens unique — jamais d'écriture dans l'état canonique (voir note 13.1)
+
+### 13.x Intégration dans l'application
+**Purpose:** Brancher GPUParticleSystem dans la boucle et valider la frontière de déterminisme
+
+- [ ] Instancier `GPUParticleSystem` et l'appeler après Bodies layer (étape 1)
+- [ ] Passer positions + μ des corps en mémoire constante GPU (`__constant__`)
+- [ ] Brancher l'interop CUDA↔GL pour le rendu direct depuis le buffer GPU
+- [ ] Exécuter le test non-régression : état canonique bit-identique avec GPU on et GPU off
+- [ ] **Success criteria :** Ceinture/anneaux affichés à 60 Hz, déterminisme du cœur intact
 
 ---
 
