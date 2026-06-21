@@ -46,9 +46,14 @@ endif()
 
 set(ORBIT_SOURCES
     src/main.cpp
+    src/Core/State/State.cpp
     src/Core/SimulationLoop/SimulationLoop.cpp
     src/Core/TimeManager/TimeManager.cpp
     src/Core/Logger/Logger.cpp
+    src/Core/Integrator/SemiImplicitEuler/SemiImplicitEuler.cpp
+    src/Core/Integrator/VelocityVerlet/VelocityVerlet.cpp
+    src/Core/Integrator/RK4/RK4.cpp
+    src/Core/Integrator/Leapfrog/Leapfrog.cpp
 )
 
 add_executable(OrbitSim ${ORBIT_SOURCES})
@@ -105,6 +110,9 @@ target_include_directories(OrbitSim PRIVATE src)
 
 # --- GLM (Phase 0 — requis dès le départ) ---
 # dvec3, dquat et toute la double précision sont natifs dans GLM, aucun define requis.
+find_package(Threads REQUIRED)
+target_link_libraries(OrbitSim PRIVATE Threads::Threads)
+
 find_package(glm CONFIG QUIET)
 if(glm_FOUND)
     target_link_libraries(OrbitSim PRIVATE glm::glm)

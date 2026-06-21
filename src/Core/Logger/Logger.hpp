@@ -20,11 +20,8 @@ namespace Orbit {
         static Level _minLevel;
     };
 
-} // namespace Orbit
+}
 
-// =============================================================================
-// SIM_ASSERT — désactivé en Release (NDEBUG), fatal en Debug
-// =============================================================================
 #include <cstdlib>
 #include <string>
 

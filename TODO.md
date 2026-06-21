@@ -154,15 +154,15 @@
 ### 0.x Intégration dans l'application
 **Purpose:** Brancher tous les composants Phase 0 dans `main.cpp` et valider la boucle de bout en bout
 
-- [ ] Instancier `TimeManager` et `SimulationLoop` dans `main()`
-- [ ] Boucle principale : appeler `timeManager.update()` puis `simulationLoop.update(timeManager.getUnscaledDeltaTime())`
-- [ ] Récupérer `alpha` et l'afficher (vérification visuelle que la boucle tourne)
-- [ ] Afficher `FPS`, `simTime`, `calendar` via les getters `TimeManager`
-- [ ] Instancier un `State` de test et vérifier les getters/setters
-- [ ] Instancier chaque intégrateur (Phase 0.4) et appeler `step()` une fois avec un `State` factice
-- [ ] Switcher d'intégrateur via `std::unique_ptr<IIntegrator>` et vérifier que les deux donnent des résultats cohérents
-- [ ] Vérifier que la boucle tourne sans spirale de mort (cap 8 sous-pas actif)
-- [ ] **Success criteria :** La simulation tourne, le calendrier avance, alpha ∈ [0, 1]
+- [x] Instancier `TimeManager` et `SimulationLoop` dans `main()`
+- [x] Boucle principale : appeler `timeManager.update()` puis `simulationLoop.update(timeManager.getUnscaledDeltaTime())`
+- [x] Récupérer `alpha` et l'afficher (vérification visuelle que la boucle tourne)
+- [x] Afficher `FPS`, `simTime`, `calendar` via les getters `TimeManager`
+- [x] Instancier un `State` de test et vérifier les getters/setters via `SIM_ASSERT`
+- [x] Instancier chaque intégrateur (Phase 0.4) et appeler `step()` une fois avec un `State` LEO
+- [x] Switcher d'intégrateur via `std::unique_ptr<IIntegrator>` — polymorphisme validé
+- [x] Vérifier que la boucle tourne sans spirale de mort (cap 8 sous-pas actif, FPS≈60 stable)
+- [x] **Success criteria :** La simulation tourne, le calendrier avance, alpha ∈ [0, 1] ✓
 
 ---
 
@@ -213,7 +213,8 @@
 ### 1.x Intégration dans l'application
 **Purpose:** Brancher le premier corps + particule dans la boucle et valider l'orbite
 
-- [ ] Instancier un corps massif (μ fixe) et une particule (`State`) dans `main.cpp`
+- [ ] Créer une classe `Application` (`src/App/Application.hpp/.cpp`) qui possède `TimeManager`, `SimulationLoop` et `std::unique_ptr<IIntegrator>` — `main()` réduit à `Application app; return app.run();`
+- [ ] Instancier un corps massif (μ fixe) et une particule (`State`) dans `Application`
 - [ ] Appeler `GravitySystem` dans la Force layer (étape 2) de `SimulationLoop`
 - [ ] Logger l'énergie spécifique `ε` et le moment cinétique `h` à chaque tour
 - [ ] Lancer la même simulation avec Euler puis Velocity Verlet et comparer la dérive sur 100 tours
