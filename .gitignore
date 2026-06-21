@@ -1,0 +1,101 @@
+# =============================================================================
+# Build
+# =============================================================================
+
+build/
+out/
+cmake-build-*/
+
+# Fichiers générés par CMake à la racine (ne pas lancer cmake depuis la racine)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest*.txt
+CTestTestfile.cmake
+_deps/
+
+# Compilés
+*.o
+*.a
+*.so
+*.so.*
+*.dll
+*.lib
+*.exe
+*.out
+
+# =============================================================================
+# vcpkg
+# =============================================================================
+
+# Répertoire d'installation vcpkg si ajouté en sous-module
+vcpkg_installed/
+
+# =============================================================================
+# Extern / Submodules (Phase 11+)
+# =============================================================================
+
+# bgfx compilé (Phase 11 — add_subdirectory(extern/bgfx.cmake))
+extern/bgfx.cmake/build/
+extern/bgfx.cmake/.build/
+
+# Shaders compilés bgfx (binaires générés à partir de shaders/src/)
+shaders/compiled/
+*.bin.h
+
+# =============================================================================
+# CUDA (Phase 13)
+# =============================================================================
+
+*.cubin
+*.ptx
+*.fatbin
+*.o.d
+
+# =============================================================================
+# Tests & Profiling
+# =============================================================================
+
+# Sorties gtest
+test_results/
+*.xml
+
+# Tracy profiler
+*.tracy
+
+# =============================================================================
+# Scenarios & Saves (Phase 12)
+# =============================================================================
+
+# Fichiers de sauvegarde générés en jeu (pas du code source)
+saves/
+scenarios/autosave/
+
+# =============================================================================
+# IDE & Éditeurs
+# =============================================================================
+
+.vscode/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+.vs/
+
+# CLion
+cmake-build-debug/
+cmake-build-release/
+
+# =============================================================================
+# Notes personnelles (non versionnées)
+# =============================================================================
+
+notes/
+
+# =============================================================================
+# OS
+# =============================================================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
