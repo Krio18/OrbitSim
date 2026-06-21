@@ -40,7 +40,7 @@ Everything else in the simulation is layered on top of this single emergent beha
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| Phase 0 | Core Simulation Architecture (State, fixed-timestep loop, TimeManager, Integrators) | 🚧 In Progress |
+| Phase 0 | Core Simulation Architecture (State, fixed-timestep loop, TimeManager, Integrators) | ✅ Done |
 | Phase 1 | First Orbit Milestone — stable 2D orbit, conservation checks | 📋 Planned |
 | Phase 2 | N-body Gravity & Multi-body (summed gravity, hybrid model, collisions) | 📋 Planned |
 | Phase 3 | Celestial Bodies & Solar System (Keplerian rails, SOI, data-driven) | 📋 Planned |
@@ -61,10 +61,7 @@ Everything else in the simulation is layered on top of this single emergent beha
 ### Prerequisites
 
 - **CMake** 3.21 or higher
-- **C++20** compatible compiler:
-  - GCC 11+
-  - Clang 13+
-  - MSVC 19.29+ (Visual Studio 2019 16.11+)
+- **C++20** compatible compiler (GCC 11+ · Clang 13+ · MSVC 19.29+)
 - **vcpkg** package manager
 
 ### Installation
@@ -76,7 +73,7 @@ Everything else in the simulation is layered on top of this single emergent beha
 git clone https://github.com/microsoft/vcpkg.git
 cd vcpkg
 ./bootstrap-vcpkg.sh
-export VCPKG_ROOT=$(pwd)
+export VCPKG_ROOT=$(pwd)   # add to ~/.bashrc or ~/.zshrc to persist
 ```
 
 **Windows (PowerShell):**
@@ -94,19 +91,52 @@ git clone https://github.com/Krio18/OrbitSim.git
 cd OrbitSim
 ```
 
-#### 3. Build
+#### 3. Install dependencies
+
+```bash
+vcpkg install glm
+```
+
+> `nlohmann-json`, `sdl2` and `gtest` are optional at this stage — the build will warn if absent and skip the corresponding features.
+
+#### 4. Build
+
+**Release (Linux/macOS):**
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+**Debug (Linux/macOS):**
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
+```
+
+**Windows (PowerShell):**
+```powershell
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+#### 5. Run
 
 **Linux/macOS:**
 ```bash
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release -j$(nproc)
+./build/bin/OrbitSim
 ```
 
 **Windows:**
 ```powershell
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+.\build\bin\OrbitSim.exe
 ```
+
+#### Optional build flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-DORBIT_BUILD_TESTS=ON` | ON | Build unit tests (requires GTest) |
+| `-DORBIT_ENABLE_ASAN=ON` | OFF | Enable AddressSanitizer (Debug only) |
 
 ---
 
@@ -114,13 +144,13 @@ cmake --build build --config Release
 
 | Component | Library | Status |
 |-----------|---------|--------|
-| **Build System** | CMake + vcpkg | 📋 Planned |
-| **Math** | GLM (`dvec3` / `dquat`, double precision) | 📋 Planned (Phase 0) |
-| **Data** | nlohmann-json (data-driven bodies & atmospheres) | 📋 Planned (Phase 3) |
-| **Testing** | Google Test | 📋 Planned (Phase 1) |
-| **Windowing** | SDL2 | 📋 Planned (Phase 11) |
-| **Rendering** | bgfx | 📋 Planned (Phase 11) |
-| **HUD / Debug UI** | Dear ImGui | 📋 Planned (Phase 11) |
+| **Build System** | CMake + vcpkg | ✅ Active |
+| **Math** | GLM (`dvec3` / `dquat`, double precision) | ✅ Active (Phase 0) |
+| **Data** | nlohmann-json (data-driven bodies & atmospheres) | 📋 Phase 3 |
+| **Testing** | Google Test | 📋 Phase 1 |
+| **Windowing** | SDL2 | 📋 Phase 1.4 |
+| **Rendering** | bgfx | 📋 Phase 11 |
+| **HUD / Debug UI** | Dear ImGui | 📋 Phase 11 |
 | **Profiling** | Tracy | 🔧 Optional |
 
 ---
