@@ -119,13 +119,12 @@
 ### 0.4 Numerical Integrators
 **Purpose:** Avancer l'état d'un pas — le choix décide de la stabilité des orbites
 
-- [ ] Créer `src/Core/Integrator.hpp` (interface)
-- [ ] Implémenter **Semi-implicit Euler** (référence pédagogique — montre la dérive)
-- [ ] Implémenter **Velocity Verlet** (symplectique — workhorse pour les orbites)
-- [ ] Implémenter **Leapfrog** (symplectique, équivalent, parfois plus pratique)
-- [ ] Implémenter **RK4** (non symplectique — utile pour comparer, NE PAS utiliser pour orbites longues)
-- [ ] Interface commune : `step(State&, forceFunc, dt)`
-- [ ] Permettre de switcher d'intégrateur via config (pour comparer la dérive)
+- [x] Créer `src/Core/Integrator/IIntegrator.hpp` (interface + alias `AccelFunc`)
+- [x] Implémenter **Semi-implicit Euler** (référence pédagogique — montre la dérive)
+- [x] Implémenter **Velocity Verlet** (symplectique — workhorse pour les orbites, avec prédicteur-correcteur pour les forces dépendant de v)
+- [x] Implémenter **Leapfrog** forme KDK (symplectique, équivalent Verlet)
+- [x] Implémenter **RK4** (non symplectique — comparaison uniquement, réutilise `State::Derivative`)
+- [x] Interface commune : `step(State&, AccelFunc, dt) const`
 
 > **Note technique :** RK4 ne conserve PAS l'énergie : une orbite censée être stable spirale lentement. Velocity Verlet / leapfrog sont symplectiques → l'énergie oscille autour d'une valeur fixe sans dériver. C'est *la* clé d'orbites fermées indéfiniment.
 
@@ -161,6 +160,7 @@
 - [ ] Afficher `FPS`, `simTime`, `calendar` via les getters `TimeManager`
 - [ ] Instancier un `State` de test et vérifier les getters/setters
 - [ ] Instancier chaque intégrateur (Phase 0.4) et appeler `step()` une fois avec un `State` factice
+- [ ] Switcher d'intégrateur via `std::unique_ptr<IIntegrator>` et vérifier que les deux donnent des résultats cohérents
 - [ ] Vérifier que la boucle tourne sans spirale de mort (cap 8 sous-pas actif)
 - [ ] **Success criteria :** La simulation tourne, le calendrier avance, alpha ∈ [0, 1]
 
