@@ -37,14 +37,18 @@ endif()
 #
 #   Phase 0.2 : src/Core/SimulationLoop/SimulationLoop.cpp
 #   Phase 0.3 : src/Core/TimeManager/TimeManager.cpp
+#   Phase 0.5 : src/Core/Logger/Logger.cpp
 #
 # Header-only (aucun .cpp) :
 #   Phase 0.1 : src/Core/State/State.hpp
-#   Phase 0.4 : src/Core/Integrator/Integrator.hpp
-#   Phase 0.5 : src/Core/Constants/Constants.hpp
+#   Phase 0.4 : src/Core/Integrator/IIntegrator.hpp + sous-classes
+#   Phase 0.5 : src/Core/Constants.hpp
 
 set(ORBIT_SOURCES
     src/main.cpp
+    src/Core/SimulationLoop/SimulationLoop.cpp
+    src/Core/TimeManager/TimeManager.cpp
+    src/Core/Logger/Logger.cpp
 )
 
 add_executable(OrbitSim ${ORBIT_SOURCES})

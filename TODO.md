@@ -135,12 +135,12 @@
 ### 0.5 Constants, Units & Logger
 **Purpose:** Conventions cohérentes et outils de debug dès le départ
 
-- [ ] Créer `src/Core/Constants.hpp` : `G`, `g0 = 9.80665`, conversions
-- [ ] **SI partout** : mètres, kilogrammes, secondes, radians
-- [ ] Utiliser `μ = GM` (paramètre gravitationnel standard) plutôt que `G·M` séparément
-- [ ] Logger avec niveaux (Info/Warning/Error)
-- [ ] Macro d'assertion `SIM_ASSERT`
-- [ ] Documenter les conventions de repère (axe « haut », sens de rotation positif)
+- [x] Créer `src/Core/Constants.hpp` : `G`, `g0`, μ des corps principaux, conversions (header-only)
+- [x] **SI partout** : mètres, kilogrammes, secondes, radians
+- [x] Utiliser `μ = GM` (paramètre gravitationnel standard) plutôt que `G·M` séparément
+- [x] Logger avec niveaux (Info/Warning/Error) + `setLevel()` — `src/Core/Logger/`
+- [x] Macro d'assertion `SIM_ASSERT` (fatal en Debug, no-op en Release)
+- [x] Documenter les conventions de repère (axe « haut », sens de rotation positif) dans `Constants.hpp`
 
 > **Note technique :** Pour les vrais corps, `μ` est connu bien plus précisément que `G` ou `M` séparément. Charger `μ` directement évite d'accumuler l'imprécision de `G`.
 
