@@ -46,6 +46,7 @@ endif()
 
 set(ORBIT_SOURCES
     src/main.cpp
+    # Phase 0
     src/Core/State/State.cpp
     src/Core/SimulationLoop/SimulationLoop.cpp
     src/Core/TimeManager/TimeManager.cpp
@@ -54,6 +55,9 @@ set(ORBIT_SOURCES
     src/Core/Integrator/VelocityVerlet/VelocityVerlet.cpp
     src/Core/Integrator/RK4/RK4.cpp
     src/Core/Integrator/Leapfrog/Leapfrog.cpp
+    # Phase 1
+    src/App/Application.cpp
+    src/Physics/GravitySystem.cpp
 )
 
 add_executable(OrbitSim ${ORBIT_SOURCES})
@@ -136,11 +140,26 @@ endif()
 # --- SDL2 (Phase 1.4 — rendu 2D minimal pour valider l'orbite) ---
 find_package(SDL2 CONFIG QUIET)
 if(SDL2_FOUND)
-    target_link_libraries(OrbitSim PRIVATE SDL2::SDL2 SDL2::SDL2main)
-    add_compile_definitions(ORBIT_HAS_SDL2)
-    message(STATUS "SDL2: found")
+    target_link_libraries(OrbitSim PRIVATE SDL2::SDL2)
+    if(TARGET SDL2::SDL2main)
+        target_link_libraries(OrbitSim PRIVATE SDL2::SDL2main)
+    endif()
+    target_compile_definitions(OrbitSim PRIVATE ORBIT_HAS_SDL2)
+    message(STATUS "SDL2: found (CONFIG)")
 else()
-    message(STATUS "SDL2: absent (requis en Phase 1.4 — vcpkg install sdl2)")
+    # Fallback pkg-config (apt install libsdl2-dev)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL2_PKG QUIET sdl2)
+    endif()
+    if(SDL2_PKG_FOUND)
+        target_link_libraries(OrbitSim PRIVATE ${SDL2_PKG_LIBRARIES})
+        target_include_directories(OrbitSim PRIVATE ${SDL2_PKG_INCLUDE_DIRS})
+        target_compile_definitions(OrbitSim PRIVATE ORBIT_HAS_SDL2)
+        message(STATUS "SDL2: found (pkg-config)")
+    else()
+        message(STATUS "SDL2: absent — mode headless (apt install libsdl2-dev)")
+    endif()
 endif()
 
 # --- bgfx (Phase 11 — rendu 3D, non requis avant) ---
