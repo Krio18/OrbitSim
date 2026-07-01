@@ -40,7 +40,7 @@ Everything else in the simulation is layered on top of this single emergent beha
 
 https://github.com/user-attachments/assets/0d75d769-aca2-4c29-b8cc-3b21059d8052
 
-> Phase 1 — orbite LEO stable à 7 000 km. Euler semi-implicite (rouge) dérive progressivement, Velocity Verlet (vert) reste fermé indéfiniment. Warp ×4000 par défaut.
+> Phase 1 — stable LEO orbit at 7,000 km. Semi-implicit Euler (red) drifts over time, Velocity Verlet (green) stays closed indefinitely. Time warp ×4000 by default.
 
 ---
 
