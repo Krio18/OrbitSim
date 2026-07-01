@@ -2,7 +2,7 @@
 
 **Architecture:** Deterministic fixed-timestep physics core · Hybrid gravity (n-body vessel + bodies on rails) · Double precision (float64) · SI units
 **Current Version:** 0.1.0-alpha
-**Last Updated:** 2026-06-02
+**Last Updated:** 2026-07-01
 
 > Sim aérospatiale de type Kerbal : système solaire avec gravité réelle, où les orbites *émergent* de l'intégration des forces, plus descente/atterrissage propulsé. Conçue comme deuxième projet alternant avec le game engine — réutilise volontairement les mêmes patterns (ServiceLocator, fixed timestep, manager lifecycle) pour que passer d'un projet à l'autre soit naturel.
 
