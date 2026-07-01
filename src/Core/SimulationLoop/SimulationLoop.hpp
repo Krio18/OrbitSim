@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include "../State/State.hpp"
 
 namespace Orbit {
@@ -8,7 +9,7 @@ namespace Orbit {
             SimulationLoop(double dt = 1.0/60.0);
             ~SimulationLoop() = default;
 
-            double update(double elapsedTime);
+            double update(double elapsedTime, std::function<void(double)> physicsStep = {});
 
             void setPrevousState(const State& previousState);
 

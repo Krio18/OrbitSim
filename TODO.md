@@ -173,33 +173,33 @@
 ### 1.1 Single Body + Test Particle
 **Purpose:** Le cas le plus simple : un corps massif fixe, une particule sans masse
 
-- [ ] Corps massif fixe à l'origine avec `μ`
-- [ ] Particule ponctuelle avec `position` + `velocity`
-- [ ] Force gravitationnelle : `a = −μ · r̂ / r²` (accélération, indépendante de la masse de la particule)
-- [ ] Boucle de simulation appliquant la gravité chaque pas
+- [x] Corps massif fixe à l'origine avec `μ` (`GravitySystem`)
+- [x] Particule ponctuelle avec `position` + `velocity`
+- [x] Force gravitationnelle : `a = −μ · r̂ / r²` (accélération, indépendante de la masse de la particule)
+- [x] Boucle de simulation appliquant la gravité chaque pas
 
 ### 1.2 Integrator Comparison
 **Purpose:** Voir de ses yeux pourquoi l'intégrateur compte
 
-- [ ] Lancer la particule avec une vitesse latérale donnant une orbite circulaire (`v = √(μ/r)`)
-- [ ] Avec **Euler semi-implicite** : observer la dérive (l'orbite change de forme)
-- [ ] Avec **Velocity Verlet** : observer une orbite stable et fermée sur des centaines de tours
-- [ ] **Success criteria :** L'orbite reste fermée et l'énergie spécifique `ε = v²/2 − μ/r` reste constante (à la tolérance numérique près)
+- [x] Lancer la particule avec une vitesse latérale donnant une orbite circulaire (`v = √(μ/r)`)
+- [x] Avec **Euler semi-implicite** : observer la dérive (l'orbite change de forme)
+- [x] Avec **Velocity Verlet** : observer une orbite stable et fermée sur des centaines de tours
+- [x] **Success criteria :** L'orbite reste fermée et l'énergie spécifique `ε = v²/2 − μ/r` reste constante (à la tolérance numérique près)
 
 ### 1.3 Conservation Checks
 **Purpose:** Vérifier que la physique est juste, pas juste « jolie »
 
-- [ ] Logger l'énergie spécifique orbitale à chaque tour
-- [ ] Logger le moment cinétique spécifique `h = r × v`
-- [ ] Vérifier la période contre `T = 2π√(a³/μ)`
-- [ ] Tracer la dérive d'énergie en fonction du temps pour chaque intégrateur
+- [x] Logger l'énergie spécifique orbitale à chaque tour
+- [x] Logger le moment cinétique spécifique `h = r × v`
+- [x] Vérifier la période contre `T = 2π√(a³/μ)`
+- [x] Tracer la dérive d'énergie en fonction du temps pour chaque intégrateur
 
 ### 1.4 Minimal 2D Rendering
 **Purpose:** Voir l'orbite
 
-- [ ] Rendu 2D basique (le corps, la particule, une traînée des N dernières positions)
-- [ ] Mapping monde → écran avec zoom/pan
-- [ ] **Success criteria :** Lâcher la particule à la bonne vitesse et la voir boucler une orbite fermée stable sans rien scripter
+- [x] Rendu 2D basique (le corps, la particule, une traînée des N dernières positions)
+- [x] Mapping monde → écran avec zoom/pan
+- [x] **Success criteria :** Lâcher la particule à la bonne vitesse et la voir boucler une orbite fermée stable sans rien scripter
 
 > **Note technique :** À ce stade, ne rends pas en `float64` directement — convertis l'état physique double précision en coordonnées écran. Le rendu lui-même peut rester simple.
 
@@ -213,12 +213,12 @@
 ### 1.x Intégration dans l'application
 **Purpose:** Brancher le premier corps + particule dans la boucle et valider l'orbite
 
-- [ ] Créer une classe `Application` (`src/App/Application.hpp/.cpp`) qui possède `TimeManager`, `SimulationLoop` et `std::unique_ptr<IIntegrator>` — `main()` réduit à `Application app; return app.run();`
-- [ ] Instancier un corps massif (μ fixe) et une particule (`State`) dans `Application`
-- [ ] Appeler `GravitySystem` dans la Force layer (étape 2) de `SimulationLoop`
-- [ ] Logger l'énergie spécifique `ε` et le moment cinétique `h` à chaque tour
-- [ ] Lancer la même simulation avec Euler puis Velocity Verlet et comparer la dérive sur 100 tours
-- [ ] **Success criteria :** Orbite fermée et stable avec Velocity Verlet, dérive visible avec Euler
+- [x] Créer une classe `Application` (`src/App/Application.hpp/.cpp`) qui possède `TimeManager`, `SimulationLoop` et `std::unique_ptr<IIntegrator>` — `main()` réduit à `Application app; return app.run();`
+- [x] Instancier un corps massif (μ fixe) et une particule (`State`) dans `Application`
+- [x] Appeler `GravitySystem` dans la Force layer (étape 2) de `SimulationLoop`
+- [x] Logger l'énergie spécifique `ε` et le moment cinétique `h` à chaque tour
+- [x] Lancer la même simulation avec Euler puis Velocity Verlet et comparer la dérive sur 100 tours
+- [x] **Success criteria :** Orbite fermée et stable avec Velocity Verlet, dérive visible avec Euler
 
 ---
 
