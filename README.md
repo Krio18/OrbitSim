@@ -4,7 +4,7 @@
 
   ![OrbitSim](docs/OrbitSim.png)
 
-  **A Real-Physics Aerospace Simulation - Early Development**
+  **A Real-Physics Aerospace Simulation — Phase 1 Complete**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
   [![C++20](https://img.shields.io/badge/C++-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
@@ -36,12 +36,20 @@ Everything else in the simulation is layered on top of this single emergent beha
 
 ---
 
+## Demo
+
+https://github.com/user-attachments/assets/0d75d769-aca2-4c29-b8cc-3b21059d8052
+
+> Phase 1 — orbite LEO stable à 7 000 km. Euler semi-implicite (rouge) dérive progressivement, Velocity Verlet (vert) reste fermé indéfiniment. Warp ×4000 par défaut.
+
+---
+
 ## Current State
 
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 0 | Core Simulation Architecture (State, fixed-timestep loop, TimeManager, Integrators) | ✅ Done |
-| Phase 1 | First Orbit Milestone — stable 2D orbit, conservation checks | 📋 Planned |
+| Phase 1 | First Orbit Milestone — gravité réelle, orbite 2D stable, conservation, rendu SDL2 | ✅ Done |
 | Phase 2 | N-body Gravity & Multi-body (summed gravity, hybrid model, collisions) | 📋 Planned |
 | Phase 3 | Celestial Bodies & Solar System (Keplerian rails, SOI, data-driven) | 📋 Planned |
 | Phase 4 | Coordinate Frames & Precision (float64, floating origin) | 📋 Planned |
@@ -94,10 +102,10 @@ cd OrbitSim
 #### 3. Install dependencies
 
 ```bash
-vcpkg install glm
+vcpkg install glm sdl2
 ```
 
-> `nlohmann-json`, `sdl2` and `gtest` are optional at this stage — the build will warn if absent and skip the corresponding features.
+> `sdl2` est requis pour le rendu (Phase 1+). `nlohmann-json` et `gtest` sont optionnels — le build averti si absent et désactive les fonctionnalités correspondantes.
 
 #### 4. Build
 
@@ -147,8 +155,8 @@ cmake --build build
 | **Build System** | CMake + vcpkg | ✅ Active |
 | **Math** | GLM (`dvec3` / `dquat`, double precision) | ✅ Active (Phase 0) |
 | **Data** | nlohmann-json (data-driven bodies & atmospheres) | 📋 Phase 3 |
-| **Testing** | Google Test | 📋 Phase 1 |
-| **Windowing** | SDL2 | 📋 Phase 1.4 |
+| **Testing** | Google Test | 📋 Phase 2+ |
+| **Windowing/Rendering 2D** | SDL2 | ✅ Active (Phase 1) |
 | **Rendering** | bgfx | 📋 Phase 11 |
 | **HUD / Debug UI** | Dear ImGui | 📋 Phase 11 |
 | **Profiling** | Tracy | 🔧 Optional |
